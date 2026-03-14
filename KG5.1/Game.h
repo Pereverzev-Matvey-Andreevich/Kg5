@@ -1,124 +1,91 @@
 #pragma once
-#include <d3d12.h>
-#include <dxgi1_6.h>
-#include <d3dcompiler.h>
-#include <wrl/client.h>
+#include <Windows.h>
 #include <vector>
 #include <string>
-
-#pragma comment(lib, "d3d12.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "dxguid.lib")
-
+#include <memory>
+#include "RenderingSystem.h"
+#include "InputDevice.h"
 #include "Types.h"
-#include "TextureLoader.h"
-#include "ObjLoader.h"
 
-using Microsoft::WRL::ComPtr;
+struct Projectile
+{
+    XMFLOAT3 position;
+    XMFLOAT3 velocity;
+    float    distTraveled;
+    bool     stuck;
+};
 
-static const UINT FRAME_COUNT = 2;
+// Uniform grid for fast triangle lookup by world position.
+// At build time each triangle is inserted into every cell its AABB overlaps.
+// At query time only cells overlapping sphere(pos, r) are visited.
+struct TriGrid
+{
+    float    cellSize = 2.0f;
+    XMFLOAT3 origin   = {};
+    int      nx = 0, ny = 0, nz = 0;
+
+    // Flat 3D array: cell index -> list of triangle indices (into triSoup / 3)
+    std::vector<std::vector<uint32_t>> cells;
+
+    // Build from flat triangle soup (3 XMFLOAT3 per triangle).
+    void Build(const std::vector<XMFLOAT3>& soup);
+
+    // Fill 'out' with deduplicated triangle indices overlapping sphere(pos, r).
+    void Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const;
+
+    bool Empty() const { return cells.empty(); }
+};
 
 class Game
 {
 public:
     Game(HWND hwnd, int width, int height);
-    ~Game();
+    ~Game() = default;
 
     bool Initialize();
-    void Update(float deltaTime);
+    void Update(float deltaTime, InputDevice* input);
     void Render();
     void Resize(int width, int height);
 
 private:
-    // ---- Init helpers ----
-    void CreateDevice();
-    void CreateCommandQueue();
-    void CreateSwapChain();
-    void CreateDescriptorHeaps();
-    void CreateRenderTargetViews();
-    void CreateDepthStencilBuffer();
-    void CreateCommandObjects();
-    void CreateFence();
-    void CreateRootSignature();
-    void CreatePSO();
-    void CreateGeometry();
-    void LoadModel(const std::wstring& objPath);
-    void UploadTexture(const TextureData& td, int slot = 0);
-    void CreateConstantBuffer();
+    void SetupLights();
+    void BuildGeometryCB(GeometryCBData& out) const;
+    void BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const;
+    void BuildLightingCB(LightingCBData& out) const;
+    void Shoot();
 
-    // ---- Sync ----
-    void WaitForGPU();
-    void MoveToNextFrame();
+    std::unique_ptr<RenderingSystem> rs_;
+    std::vector<LightData>           lights_;
+    std::vector<Projectile>          projectiles_;
 
-    // ---- Render ----
-    void PopulateCommandList();
+    // CPU-side triangle data for collision
+    std::vector<XMFLOAT3> triSoup_;  // flat: every 3 entries = one triangle
+    TriGrid               collGrid_; // spatial acceleration over triSoup_
+    std::vector<uint32_t> queryBuf_; // reusable buffer for grid queries (avoids alloc)
 
-    // ---- Geometry helpers ----
-    std::vector<Vertex> GenerateCube();
-    std::vector<UINT>   GenerateCubeIndices();
-    void BuildBuffers(const std::vector<Vertex>& verts,
-                      const std::vector<UINT>&   idxs);
-    void MakeUploadBuffer(const void* data, UINT64 byteSize,
-                          ComPtr<ID3D12Resource>& buf);
+    float time_      = 0.0f;
+    float uvOffsetX_ = 0.0f;
+    float uvOffsetY_ = 0.0f;
 
-    ComPtr<ID3DBlob> CompileShader(const std::wstring& filename,
-                                   const std::string& entry,
-                                   const std::string& target);
+    float camX_ = 0.0f;
+    float camY_ = 5.0f;
+    float camZ_ = -15.0f;
 
-    // Window
-    HWND hwnd_;
+    float camYaw_   = 0.0f;
+    float camPitch_ = 0.0f;
+
+    float moveSpeed_        = 20.0f;
+    float mouseSensitivity_ = 0.003f;
+    float nearPlane_        = 0.5f;
+    float farPlane_         = 5000.0f;
+
+    float projectileSpeed_   = 80.0f;
+    float projectileMaxDist_ = 400.0f;
+    float projectileRadius_  = 0.4f;
+
+    bool prevSpace_ = false;
+
     int  width_;
     int  height_;
-
-    // Animation
-    float rotationAngle_ = 0.0f;
-    float uvOffsetX_     = 0.0f;
-    float uvOffsetY_     = 0.0f;
-
-    // D3D12 core
-    ComPtr<ID3D12Device>              device_;
-    ComPtr<ID3D12CommandQueue>        commandQueue_;
-    ComPtr<IDXGISwapChain3>           swapChain_;
-
-    // Descriptor heaps
-    ComPtr<ID3D12DescriptorHeap>      rtvHeap_;
-    ComPtr<ID3D12DescriptorHeap>      dsvHeap_;
-    ComPtr<ID3D12DescriptorHeap>      srvHeap_;   // shader-visible, for texture
-    UINT                              rtvDescSize_ = 0;
-
-    // Render targets + depth
-    ComPtr<ID3D12Resource>            renderTargets_[FRAME_COUNT];
-    ComPtr<ID3D12Resource>            depthStencil_;
-
-    // Command objects
-    ComPtr<ID3D12CommandAllocator>    commandAllocators_[FRAME_COUNT];
-    ComPtr<ID3D12GraphicsCommandList> commandList_;
-
-    // Pipeline
-    ComPtr<ID3D12RootSignature>       rootSignature_;
-    ComPtr<ID3D12PipelineState>       pso_;
-
-    // Geometry
-    ComPtr<ID3D12Resource>            vertexBuffer_;
-    ComPtr<ID3D12Resource>            indexBuffer_;
-    D3D12_VERTEX_BUFFER_VIEW          vbView_ = {};
-    D3D12_INDEX_BUFFER_VIEW           ibView_ = {};
-    UINT                              indexCount_ = 0;
-
-    // Textures  (slot 0 = A, slot 1 = B)
-    ComPtr<ID3D12Resource>            texture_;
-    ComPtr<ID3D12Resource>            textureUpload_;
-    ComPtr<ID3D12Resource>            texture2_;
-    ComPtr<ID3D12Resource>            textureUpload2_;
-
-    // Constant buffer (persistently mapped)
-    ComPtr<ID3D12Resource>            constantBuffer_;
-    ConstantBufferData*               cbMapped_ = nullptr;
-
-    // Fence
-    ComPtr<ID3D12Fence>               fence_;
-    UINT64                            fenceValues_[FRAME_COUNT] = {};
-    HANDLE                            fenceEvent_ = nullptr;
-    UINT                              frameIndex_ = 0;
+    HWND hwnd_;
 };

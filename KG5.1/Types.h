@@ -2,25 +2,57 @@
 #include <DirectXMath.h>
 using namespace DirectX;
 
-// ---- Vertex (with UV) ----
 struct Vertex
 {
-    XMFLOAT3 Position;  // 12
-    XMFLOAT3 Normal;    // 12
-    XMFLOAT4 Color;     // 16
-    XMFLOAT2 TexCoord;  // 8   -> total = 48 bytes
+    XMFLOAT3 Position;
+    XMFLOAT3 Normal;
+    XMFLOAT4 Color;
+    XMFLOAT2 TexCoord;
 };
 
-// ---- Constant Buffer (256 bytes exactly) ----
-struct ConstantBufferData
+struct QuadVertex
 {
-    XMMATRIX World;       // 64
-    XMMATRIX View;        // 64
-    XMMATRIX Proj;        // 64
-    XMFLOAT4 LightPos;    // 16
-    XMFLOAT4 LightColor;  // 16
-    XMFLOAT4 CameraPos;   // 16
-    XMFLOAT2 Tiling;      //  8  -- texture tiling factor (U, V)
-    XMFLOAT2 UVOffset;    //  8  -- animated UV scroll offset
-                          // total = 256
+    XMFLOAT2 Position;
+    XMFLOAT2 TexCoord;
 };
+
+enum class LightType : int
+{
+    Point       = 0,
+    Directional = 1,
+    Spot        = 2
+};
+
+struct LightData
+{
+    XMFLOAT4 Position;
+    XMFLOAT4 Direction;
+    XMFLOAT4 Color;
+    int      Type;
+    float    Range;
+    float    InnerConeAngle;
+    float    OuterConeAngle;
+};
+
+#define MAX_LIGHTS 64
+
+struct GeometryCBData
+{
+    XMMATRIX World;
+    XMMATRIX View;
+    XMMATRIX Proj;
+    XMFLOAT2 Tiling;
+    XMFLOAT2 UVOffset;
+    float    Pad[12];
+};
+static_assert(sizeof(GeometryCBData) == 256, "GeometryCBData must be 256 bytes");
+
+struct LightingCBData
+{
+    XMFLOAT4  CameraPos;            // 16
+    int       LightCount;           //  4
+    float     HeaderPad[3];         // 12  -> 32 bytes header
+    LightData Lights[MAX_LIGHTS];   // 64 * 64 = 4096
+    float     CBPad[56];            // 224 -> total 4352 (17 * 256)
+};
+static_assert(sizeof(LightingCBData) % 256 == 0, "LightingCBData must be multiple of 256 bytes");

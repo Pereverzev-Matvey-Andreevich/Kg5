@@ -20,23 +20,27 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="GBuffer.cpp" />
     <ClCompile Include="InputDevice.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="ObjLoader.cpp" />
+    <ClCompile Include="RenderingSystem.cpp" />
     <ClCompile Include="TextureLoader.cpp" />
     <ClCompile Include="Window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h" />
+    <ClInclude Include="GBuffer.h" />
     <ClInclude Include="InputDevice.h" />
     <ClInclude Include="ObjLoader.h" />
+    <ClInclude Include="RenderingSystem.h" />
     <ClInclude Include="TextureLoader.h" />
     <ClInclude Include="Types.h" />
     <ClInclude Include="Utils.h" />
     <ClInclude Include="Window.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Shaders.hlsl">
+    <None Include="DeferredShaders.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>
@@ -133,7 +137,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(ProjectDir)Shaders.hlsl" "$(OutDir)"</Command>
+      <Command>xcopy /Y "$(ProjectDir)DeferredShaders.hlsl" "$(OutDir)"
+xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -151,7 +156,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(ProjectDir)Shaders.hlsl" "$(OutDir)"</Command>
+      <Command>xcopy /Y "$(ProjectDir)DeferredShaders.hlsl" "$(OutDir)"
+xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
