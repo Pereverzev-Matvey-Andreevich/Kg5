@@ -32,10 +32,12 @@ public:
     void BeginFrame();
     void BeginGeometryPass();
     void DrawSceneMesh(const GeometryCBData& cb);
+    void DrawSceneMeshTess(const GeometryCBData& cb);
     void DrawSphere(const GeometryCBData& cb);
     void EndGeometryPass();
     void DoLightingPass(const LightingCBData& cb);
     void EndFrame();
+    void SetWireframe(bool on);
 
     void LoadMeshFromObj(const std::wstring& path);
     void LoadMeshFromBuiltin();
@@ -55,6 +57,7 @@ private:
     void CreateCommandObjects();
     void CreateFence();
     void CreateGeometryPassPipeline();
+    void CreateTessellationPSO();
     void CreateLightingPassPipeline();
     void CreateConstantBuffers();
     void CreateSphereBuffers();
@@ -104,6 +107,9 @@ private:
 
     ComPtr<ID3D12RootSignature>       geomRootSig_;
     ComPtr<ID3D12PipelineState>       geomPSO_;
+    ComPtr<ID3D12PipelineState>       tessPSO_;
+    ComPtr<ID3D12PipelineState>       tessPSOWire_;
+    bool                              wireframe_ = false;
 
     ComPtr<ID3D12RootSignature>       lightRootSig_;
     ComPtr<ID3D12PipelineState>       lightPSO_;
@@ -120,14 +126,14 @@ private:
     D3D12_INDEX_BUFFER_VIEW           sphereIBView_ = {};
     UINT                              sphereIndexCount_ = 0;
 
-    ComPtr<ID3D12Resource>            textures_[2];
-    ComPtr<ID3D12Resource>            textureUploads_[2];
+    ComPtr<ID3D12Resource>            textures_[4];
+    ComPtr<ID3D12Resource>            textureUploads_[4];
 
-    static const UINT MAX_GEOM_DRAWS = 128; // max draw calls per frame (1 scene + N projectiles)
+    static const UINT MAX_GEOM_DRAWS = 128;
 
     ComPtr<ID3D12Resource>            geomCB_;
     GeometryCBData*                   geomCBMapped_ = nullptr;
-    UINT                              geomDrawIdx_  = 0;  // current slot index within geomCB_
+    UINT                              geomDrawIdx_  = 0;
 
     ComPtr<ID3D12Resource>            lightCB_;
     LightingCBData*                   lightCBMapped_ = nullptr;

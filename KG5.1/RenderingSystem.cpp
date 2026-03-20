@@ -33,6 +33,7 @@ bool RenderingSystem::Initialize()
         CreateFence();
         gbuffer_.Create(device_.Get(), static_cast<UINT>(width_), static_cast<UINT>(height_));
         CreateGeometryPassPipeline();
+        CreateTessellationPSO();
         CreateLightingPassPipeline();
         CreateConstantBuffers();
         CreateSphereBuffers();
@@ -104,7 +105,7 @@ void RenderingSystem::CreateDescriptorHeaps()
     }
     {
         D3D12_DESCRIPTOR_HEAP_DESC d = {};
-        d.NumDescriptors = 2;
+        d.NumDescriptors = 4;
         d.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         d.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         ThrowIfFailed(device_->CreateDescriptorHeap(&d, IID_PPV_ARGS(&srvHeap_)));
@@ -151,12 +152,12 @@ void RenderingSystem::CreateGeometryPassPipeline()
 
     D3D12_DESCRIPTOR_RANGE srvRange = {};
     srvRange.RangeType          = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srvRange.NumDescriptors     = 2;
+    srvRange.NumDescriptors     = 4;
     srvRange.BaseShaderRegister = 0;
     params[1].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     params[1].DescriptorTable.NumDescriptorRanges = 1;
     params[1].DescriptorTable.pDescriptorRanges   = &srvRange;
-    params[1].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+    params[1].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_STATIC_SAMPLER_DESC sampler = {};
     sampler.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -165,7 +166,7 @@ void RenderingSystem::CreateGeometryPassPipeline()
     sampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     sampler.MaxLOD           = D3D12_FLOAT32_MAX;
     sampler.ShaderRegister   = 0;
-    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
     rsDesc.NumParameters     = 2;
@@ -189,10 +190,10 @@ void RenderingSystem::CreateGeometryPassPipeline()
 
     D3D12_INPUT_ELEMENT_DESC layout[] =
     {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,   0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,   0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT,  0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,        0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
     D3D12_RASTERIZER_DESC raster = {};
@@ -226,6 +227,68 @@ void RenderingSystem::CreateGeometryPassPipeline()
     psoDesc.DSVFormat             = GBuffer::DepthFmt;
     psoDesc.SampleDesc            = { 1, 0 };
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&geomPSO_)));
+}
+
+void RenderingSystem::CreateTessellationPSO()
+{
+    wchar_t exePath[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring shaderPath(exePath);
+    shaderPath = shaderPath.substr(0, shaderPath.find_last_of(L"\\/") + 1) + L"DeferredShaders.hlsl";
+
+    auto vs = CompileShader(shaderPath, "TessVS", "vs_5_0");
+    auto hs = CompileShader(shaderPath, "TessHS", "hs_5_0");
+    auto ds = CompileShader(shaderPath, "TessDS", "ds_5_0");
+    auto ps = CompileShader(shaderPath, "GeometryPS", "ps_5_0");
+
+    D3D12_INPUT_ELEMENT_DESC layout[] =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT,  0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,        0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    D3D12_DEPTH_STENCIL_DESC ds_state = {};
+    ds_state.DepthEnable    = TRUE;
+    ds_state.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    ds_state.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+
+    D3D12_BLEND_DESC blend = {};
+    for (UINT i = 0; i < GBuffer::RT_COUNT; ++i)
+        blend.RenderTarget[i].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout           = { layout, _countof(layout) };
+    psoDesc.pRootSignature        = geomRootSig_.Get();
+    psoDesc.VS                    = { vs->GetBufferPointer(), vs->GetBufferSize() };
+    psoDesc.HS                    = { hs->GetBufferPointer(), hs->GetBufferSize() };
+    psoDesc.DS                    = { ds->GetBufferPointer(), ds->GetBufferSize() };
+    psoDesc.PS                    = { ps->GetBufferPointer(), ps->GetBufferSize() };
+    psoDesc.BlendState            = blend;
+    psoDesc.DepthStencilState     = ds_state;
+    psoDesc.SampleMask            = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    psoDesc.NumRenderTargets      = GBuffer::RT_COUNT;
+    psoDesc.RTVFormats[0]         = GBuffer::AlbedoFmt;
+    psoDesc.RTVFormats[1]         = GBuffer::NormalFmt;
+    psoDesc.RTVFormats[2]         = GBuffer::WorldPosFmt;
+    psoDesc.DSVFormat             = GBuffer::DepthFmt;
+    psoDesc.SampleDesc            = { 1, 0 };
+
+    D3D12_RASTERIZER_DESC rasterSolid = {};
+    rasterSolid.FillMode        = D3D12_FILL_MODE_SOLID;
+    rasterSolid.CullMode        = D3D12_CULL_MODE_NONE;
+    rasterSolid.DepthClipEnable = TRUE;
+    psoDesc.RasterizerState = rasterSolid;
+    ThrowIfFailed(device_->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&tessPSO_)));
+
+    D3D12_RASTERIZER_DESC rasterWire = {};
+    rasterWire.FillMode        = D3D12_FILL_MODE_WIREFRAME;
+    rasterWire.CullMode        = D3D12_CULL_MODE_NONE;
+    rasterWire.DepthClipEnable = TRUE;
+    psoDesc.RasterizerState = rasterWire;
+    ThrowIfFailed(device_->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&tessPSOWire_)));
 }
 
 void RenderingSystem::CreateLightingPassPipeline()
@@ -367,7 +430,6 @@ void RenderingSystem::CreateSphereBuffers()
     }
 
     sphereIndexCount_ = static_cast<UINT>(idxs.size());
-
     UINT64 vbSize = verts.size() * sizeof(Vertex);
     UINT64 ibSize = idxs.size()  * sizeof(UINT);
 
@@ -570,8 +632,7 @@ void RenderingSystem::BeginFrame()
 void RenderingSystem::BeginGeometryPass()
 {
     gbuffer_.TransitionToRenderTarget(commandList_.Get());
-
-    geomDrawIdx_ = 0; // reset per-draw slot counter
+    geomDrawIdx_ = 0;
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtvs[GBuffer::RT_COUNT];
     for (UINT i = 0; i < GBuffer::RT_COUNT; ++i)
@@ -580,13 +641,11 @@ void RenderingSystem::BeginGeometryPass()
 
     gbuffer_.Clear(commandList_.Get());
     commandList_->OMSetRenderTargets(GBuffer::RT_COUNT, rtvs, FALSE, &dsv);
-    commandList_->SetPipelineState(geomPSO_.Get());
 
     ID3D12DescriptorHeap* heaps[] = { srvHeap_.Get() };
     commandList_->SetDescriptorHeaps(1, heaps);
     commandList_->SetGraphicsRootSignature(geomRootSig_.Get());
     commandList_->SetGraphicsRootDescriptorTable(1, srvHeap_->GetGPUDescriptorHandleForHeapStart());
-    commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
 void RenderingSystem::BindGeomStateAndDraw(const GeometryCBData& cb,
@@ -594,8 +653,6 @@ void RenderingSystem::BindGeomStateAndDraw(const GeometryCBData& cb,
                                             D3D12_INDEX_BUFFER_VIEW  ibv,
                                             UINT                     idxCount)
 {
-    // Each draw call gets its own 256-byte-aligned slot so GPU reads
-    // the correct CB value even though all writes happen before submission.
     assert(geomDrawIdx_ < MAX_GEOM_DRAWS && "Too many geometry draw calls per frame");
     UINT64 slotOffset = (UINT64)geomDrawIdx_ * sizeof(GeometryCBData);
     memcpy(reinterpret_cast<char*>(geomCBMapped_) + slotOffset, &cb, sizeof(cb));
@@ -612,8 +669,22 @@ void RenderingSystem::DrawSceneMesh(const GeometryCBData& cb)
     BindGeomStateAndDraw(cb, vbView_, ibView_, indexCount_);
 }
 
+void RenderingSystem::DrawSceneMeshTess(const GeometryCBData& cb)
+{
+    commandList_->SetPipelineState(wireframe_ ? tessPSOWire_.Get() : tessPSO_.Get());
+    commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    BindGeomStateAndDraw(cb, vbView_, ibView_, indexCount_);
+}
+
+void RenderingSystem::SetWireframe(bool on)
+{
+    wireframe_ = on;
+}
+
 void RenderingSystem::DrawSphere(const GeometryCBData& cb)
 {
+    commandList_->SetPipelineState(geomPSO_.Get());
+    commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     BindGeomStateAndDraw(cb, sphereVBView_, sphereIBView_, sphereIndexCount_);
 }
 

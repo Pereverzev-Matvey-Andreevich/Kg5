@@ -43,16 +43,18 @@ struct GeometryCBData
     XMMATRIX Proj;
     XMFLOAT2 Tiling;
     XMFLOAT2 UVOffset;
-    float    Pad[12];
+    XMFLOAT4 CameraPos;
+    float    DisplacementScale;
+    float    Pad[7];
 };
 static_assert(sizeof(GeometryCBData) == 256, "GeometryCBData must be 256 bytes");
 
 struct LightingCBData
 {
-    XMFLOAT4  CameraPos;            // 16
-    int       LightCount;           //  4
-    float     HeaderPad[3];         // 12  -> 32 bytes header
-    LightData Lights[MAX_LIGHTS];   // 64 * 64 = 4096
-    float     CBPad[56];            // 224 -> total 4352 (17 * 256)
+    XMFLOAT4  CameraPos;
+    int       LightCount;
+    float     HeaderPad[3];
+    LightData Lights[MAX_LIGHTS];
+    float     CBPad[56];
 };
 static_assert(sizeof(LightingCBData) % 256 == 0, "LightingCBData must be multiple of 256 bytes");

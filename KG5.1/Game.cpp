@@ -4,17 +4,12 @@
 #include <cmath>
 #include <algorithm>
 
-// ============================================================
-//  TriGrid  —  uniform spatial grid for collision queries
-// ============================================================
-
 void TriGrid::Build(const std::vector<XMFLOAT3>& soup)
 {
     cells.clear();
     nx = ny = nz = 0;
     if (soup.size() < 3) return;
 
-    // --- Compute mesh AABB ---
     float mnx = soup[0].x, mny = soup[0].y, mnz = soup[0].z;
     float mxx = mnx,       mxy = mny,       mxz = mnz;
     for (const auto& v : soup)
@@ -23,7 +18,6 @@ void TriGrid::Build(const std::vector<XMFLOAT3>& soup)
         mxx = fmaxf(mxx, v.x); mxy = fmaxf(mxy, v.y); mxz = fmaxf(mxz, v.z);
     }
 
-    // --- Choose cell size: target ~64 divisions on longest axis ---
     float extent = fmaxf(fmaxf(mxx - mnx, mxy - mny), mxz - mnz);
     cellSize = fmaxf(1.0f, extent / 64.0f);
 
@@ -35,7 +29,6 @@ void TriGrid::Build(const std::vector<XMFLOAT3>& soup)
 
     cells.assign((size_t)nx * ny * nz, {});
 
-    // --- Insert each triangle into cells its AABB overlaps ---
     uint32_t triCount = (uint32_t)(soup.size() / 3);
     for (uint32_t i = 0; i < triCount; ++i)
     {
@@ -95,7 +88,6 @@ void TriGrid::Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const
     {
         for (uint32_t ti : cells[(size_t)(iz * ny + iy) * nx + ix])
         {
-            // Simple deduplication: linear scan over out (small in practice)
             bool dup = false;
             for (uint32_t o : out) { if (o == ti) { dup = true; break; } }
             if (!dup) out.push_back(ti);
@@ -103,9 +95,6 @@ void TriGrid::Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const
     }
 }
 
-// ============================================================
-//  Closest point on triangle (Ericson, Real-Time Collision Detection)
-// ============================================================
 static XMVECTOR ClosestPointOnTriangle(XMVECTOR P,
                                         XMVECTOR A, XMVECTOR B, XMVECTOR C)
 {
@@ -154,10 +143,6 @@ static XMVECTOR ClosestPointOnTriangle(XMVECTOR P,
     return XMVectorAdd(A, XMVectorAdd(XMVectorScale(AB, v), XMVectorScale(AC, w)));
 }
 
-// ============================================================
-//  Game
-// ============================================================
-
 Game::Game(HWND hwnd, int width, int height)
     : hwnd_(hwnd), width_(width), height_(height)
 {
@@ -183,7 +168,6 @@ bool Game::Initialize()
         {
             rs_->LoadMeshFromObj(full);
 
-            // Load OBJ again for CPU-side collision data
             ObjResult obj = LoadObj(full);
             if (obj.valid)
             {
@@ -200,7 +184,6 @@ bool Game::Initialize()
     {
         rs_->LoadMeshFromBuiltin();
 
-        // Match builtin cube faces from LoadMeshFromBuiltin()
         float s = 0.5f;
         struct F { XMFLOAT3 v[4]; };
         F faces[] = {
@@ -218,7 +201,6 @@ bool Game::Initialize()
         }
     }
 
-    // Build spatial grid from triangle soup
     collGrid_.Build(triSoup_);
 
     {
@@ -233,6 +215,46 @@ bool Game::Initialize()
         if (!td.valid) td = CreateCheckerboard(256, 16);
         rs_->LoadTexture(td, 1);
     }
+    {
+        TextureData td = LoadTextureWIC(dir + L"displacement.png");
+        if (!td.valid) td = LoadTextureWIC(dir + L"displacement.jpg");
+        if (!td.valid)
+        {
+            const UINT sz = 256;
+            td.width = sz; td.height = sz; td.valid = true;
+            td.pixels.resize(sz * sz * 4);
+            for (UINT y = 0; y < sz; ++y)
+            for (UINT x = 0; x < sz; ++x)
+            {
+                float fx = (float)x / sz;
+                float fy = (float)y / sz;
+                float h  = 0.5f + 0.5f * sinf(fx * 3.14159f * 8.0f) * cosf(fy * 3.14159f * 8.0f);
+                uint8_t v = (uint8_t)(h * 255.0f);
+                UINT i = (y * sz + x) * 4;
+                td.pixels[i+0] = v; td.pixels[i+1] = v;
+                td.pixels[i+2] = v; td.pixels[i+3] = 255;
+            }
+        }
+        rs_->LoadTexture(td, 2);
+    }
+    {
+        TextureData td = LoadTextureWIC(dir + L"normal.png");
+        if (!td.valid) td = LoadTextureWIC(dir + L"normal.jpg");
+        if (!td.valid)
+        {
+            const UINT sz = 256;
+            td.width = sz; td.height = sz; td.valid = true;
+            td.pixels.resize(sz * sz * 4, 0);
+            for (UINT i = 0; i < sz * sz; ++i)
+            {
+                td.pixels[i*4+0] = 128;
+                td.pixels[i*4+1] = 128;
+                td.pixels[i*4+2] = 255;
+                td.pixels[i*4+3] = 255;
+            }
+        }
+        rs_->LoadTexture(td, 3);
+    }
 
     SetupLights();
     return true;
@@ -246,15 +268,15 @@ void Game::SetupLights()
         LightData l = {};
         l.Type     = static_cast<int>(LightType::Point);
         l.Position = { -8.0f, 3.0f, 0.0f, 1.0f };
-        l.Color    = { 1.0f, 0.0f, 0.0f, 30.0f };
+        l.Color    = { 1.0f, 0.8f, 0.6f, 8.0f };
         l.Range    = 50.0f;
         lights_.push_back(l);
     }
     {
         LightData l = {};
         l.Type      = static_cast<int>(LightType::Directional);
-        l.Direction = { 1.0f, 0.0f, 0.0f, 0.0f };
-        l.Color     = { 0.0f, 1.0f, 0.0f, 3.0f };
+        l.Direction = { 0.5f, -1.0f, 0.5f, 0.0f };
+        l.Color     = { 1.0f, 1.0f, 1.0f, 1.5f };
         lights_.push_back(l);
     }
     {
@@ -262,7 +284,7 @@ void Game::SetupLights()
         l.Type           = static_cast<int>(LightType::Spot);
         l.Position       = { 8.0f, 8.0f, 0.0f, 1.0f };
         l.Direction      = { 0.0f, -1.0f, 0.0f, 0.0f };
-        l.Color          = { 0.0f, 0.3f, 1.0f, 40.0f };
+        l.Color          = { 0.8f, 0.9f, 1.0f, 10.0f };
         l.Range          = 50.0f;
         l.InnerConeAngle = XMConvertToRadians(20.0f);
         l.OuterConeAngle = XMConvertToRadians(50.0f);
@@ -334,16 +356,20 @@ void Game::Update(float deltaTime, InputDevice* input)
         if (spaceNow && !prevSpace_)
             Shoot();
         prevSpace_ = spaceNow;
+
+        bool f1Now = input->IsKeyDown('F');
+        if (f1Now && !prevF1_)
+        {
+            wireframe_ = !wireframe_;
+            rs_->SetWireframe(wireframe_);
+            SetWindowTextW(hwnd_, wireframe_ ? L"DX12 - WIREFRAME ON" : L"DX12 - WIREFRAME OFF");
+        }
+        prevF1_ = f1Now;
     }
 
-    // --- Projectile movement with sub-stepping + grid collision ---
-    //
-    // Sub-step size is half the sphere radius, so the sphere can never
-    // "jump over" a surface between two steps — fixes tunneling through walls.
-    //
     const float r       = projectileRadius_;
     const float r2      = r * r;
-    const float subStep = r * 0.5f; // guaranteed no tunneling
+    const float subStep = r * 0.5f;
 
     for (auto& p : projectiles_)
     {
@@ -357,28 +383,24 @@ void Game::Update(float deltaTime, InputDevice* input)
             continue;
         }
 
-        // Normalized direction (computed once per projectile per frame)
         float invSpd = 1.0f / projectileSpeed_;
         XMFLOAT3 dirF = { p.velocity.x * invSpd,
                            p.velocity.y * invSpd,
                            p.velocity.z * invSpd };
         XMVECTOR dir = XMLoadFloat3(&dirF);
 
-        // Walk in sub-steps
         float remaining = moveDist;
         while (remaining > 0.0f)
         {
             float step = (remaining < subStep) ? remaining : subStep;
             remaining -= step;
 
-            // Advance position by one sub-step
             XMVECTOR pos = XMLoadFloat3(&p.position);
             pos = XMVectorAdd(pos, XMVectorScale(dir, step));
             XMStoreFloat3(&p.position, pos);
 
-            if (collGrid_.Empty()) continue; // no geometry loaded yet
+            if (collGrid_.Empty()) continue;
 
-            // Query only triangles near the sphere
             queryBuf_.clear();
             collGrid_.Query(p.position, r, queryBuf_);
 
@@ -395,7 +417,6 @@ void Game::Update(float deltaTime, InputDevice* input)
 
                 if (dist2 <= r2)
                 {
-                    // Place sphere centre exactly one radius from the surface
                     if (dist2 > 1e-8f)
                     {
                         float    dist   = sqrtf(dist2);
@@ -409,7 +430,7 @@ void Game::Update(float deltaTime, InputDevice* input)
                 }
             }
 
-            if (hit) break; // stop sub-stepping once stuck
+            if (hit) break;
         }
     }
 }
@@ -430,11 +451,13 @@ void Game::BuildGeometryCB(GeometryCBData& cb) const
     XMMATRIX proj = XMMatrixPerspectiveFovLH(
         XMConvertToRadians(60.0f), aspect, nearPlane_, farPlane_);
     cb = {};
-    cb.World    = XMMatrixTranspose(world);
-    cb.View     = XMMatrixTranspose(view);
-    cb.Proj     = XMMatrixTranspose(proj);
-    cb.Tiling   = XMFLOAT2(4.0f, 4.0f);
-    cb.UVOffset = XMFLOAT2(uvOffsetX_, uvOffsetY_);
+    cb.World             = XMMatrixTranspose(world);
+    cb.View              = XMMatrixTranspose(view);
+    cb.Proj              = XMMatrixTranspose(proj);
+    cb.Tiling            = XMFLOAT2(4.0f, 4.0f);
+    cb.UVOffset          = XMFLOAT2(uvOffsetX_, uvOffsetY_);
+    cb.CameraPos         = XMFLOAT4(camX_, camY_, camZ_, 1.0f);
+    cb.DisplacementScale = 0.03f;
 }
 
 void Game::BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const
@@ -442,7 +465,8 @@ void Game::BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const
     BuildGeometryCB(out);
     XMMATRIX world = XMMatrixScaling(projectileRadius_, projectileRadius_, projectileRadius_)
                    * XMMatrixTranslation(pos.x, pos.y, pos.z);
-    out.World = XMMatrixTranspose(world);
+    out.World            = XMMatrixTranspose(world);
+    out.DisplacementScale = 0.0f;
 }
 
 void Game::BuildLightingCB(LightingCBData& cb) const
@@ -485,7 +509,7 @@ void Game::Render()
 
     rs_->BeginFrame();
     rs_->BeginGeometryPass();
-    rs_->DrawSceneMesh(geomCB);
+    rs_->DrawSceneMeshTess(geomCB);
 
     for (auto& p : projectiles_)
     {

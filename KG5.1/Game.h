@@ -84,6 +84,8 @@ private:
     float projectileRadius_  = 0.4f;
 
     bool prevSpace_ = false;
+    bool prevF1_    = false;
+    bool wireframe_ = false;
 
     int  width_;
     int  height_;
