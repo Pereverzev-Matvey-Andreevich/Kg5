@@ -59,13 +59,13 @@
     <ClInclude Include="GBuffer.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
-    <ClInclude Include="Types.h">
+    <ClInclude Include="RenderingSystem.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
     <ClInclude Include="Game.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
-    <ClInclude Include="RenderingSystem.h">
+    <ClInclude Include="Types.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
   </ItemGroup>

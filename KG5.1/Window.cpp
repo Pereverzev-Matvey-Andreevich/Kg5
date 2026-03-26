@@ -1,9 +1,7 @@
 #include "Window.h"
 #include <stdexcept>
 
-// ============================================================
-//  Constructor / Destructor
-// ============================================================
+
 Window::Window(HINSTANCE hInstance, int width, int height, const std::wstring& title)
     : hInstance_(hInstance), width_(width), height_(height), title_(title)
 {
@@ -15,12 +13,10 @@ Window::~Window()
         DestroyWindow(hwnd_);
 }
 
-// ============================================================
-//  Initialize
-// ============================================================
+
 bool Window::Initialize()
 {
-    // Register window class
+    
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
     wc.style         = CS_HREDRAW | CS_VREDRAW;
@@ -32,7 +28,7 @@ bool Window::Initialize()
     if (!RegisterClassExW(&wc))
         return false;
 
-    // Calculate window rect for desired client area
+    
     RECT rc = { 0, 0, width_, height_ };
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
@@ -43,7 +39,7 @@ bool Window::Initialize()
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
         rc.right - rc.left, rc.bottom - rc.top,
-        nullptr, nullptr, hInstance_, this);  // pass 'this' for WndProc
+        nullptr, nullptr, hInstance_, this);  
 
     if (!hwnd_)
         return false;
@@ -51,27 +47,25 @@ bool Window::Initialize()
     ShowWindow(hwnd_, SW_SHOWDEFAULT);
     UpdateWindow(hwnd_);
 
-    // Create input device
+    
     input_ = std::make_unique<InputDevice>(hwnd_);
     input_->Initialize();
 
-    // Init timer
+    
     QueryPerformanceFrequency(&frequency_);
     QueryPerformanceCounter(&lastTime_);
 
     return true;
 }
 
-// ============================================================
-//  Run (message + game loop)
-// ============================================================
+
 int Window::Run(std::function<void(float)> onUpdate,
                 std::function<void()>      onRender)
 {
     MSG msg = {};
     while (true)
     {
-        // Drain the Windows message queue
+        
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             if (msg.message == WM_QUIT)
@@ -81,7 +75,7 @@ int Window::Run(std::function<void(float)> onUpdate,
             DispatchMessage(&msg);
         }
 
-        // Compute delta time
+        
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
         float dt = static_cast<float>(now.QuadPart - lastTime_.QuadPart)
@@ -93,9 +87,7 @@ int Window::Run(std::function<void(float)> onUpdate,
     }
 }
 
-// ============================================================
-//  Static WndProc  (routes messages to the instance)
-// ============================================================
+
 LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg,
                                   WPARAM wParam, LPARAM lParam)
 {
@@ -103,7 +95,7 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg,
 
     if (msg == WM_NCCREATE)
     {
-        // Store the Window* passed in CreateWindowEx
+        
         auto* cs = reinterpret_cast<CREATESTRUCT*>(lParam);
         self = reinterpret_cast<Window*>(cs->lpCreateParams);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
@@ -120,9 +112,7 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg,
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-// ============================================================
-//  Instance message handler
-// ============================================================
+
 LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)

@@ -435,7 +435,18 @@ void Game::Update(float deltaTime, InputDevice* input)
     }
 }
 
-void Game::BuildGeometryCB(GeometryCBData& cb) const
+// -----------------------------------------------------------------------
+// BuildGeometryCB
+//
+// importance задаёт пресет тесселяции для данного draw call:
+//   High   -> TessMax=32  — колонны, арки, видимые детали Sponza
+//   Medium -> TessMax=16  — обычные стены, полы (используется по умолчанию)
+//   Low    -> TessMax=4   — потолки, задний план, малозначимые объекты
+//   None   -> TessMax=1   — тесселяция фактически выключена
+//
+// Диапазон дистанций (2..30) остаётся одинаковым; меняется только потолок.
+// -----------------------------------------------------------------------
+void Game::BuildGeometryCB(GeometryCBData& cb, TessImportance importance) const
 {
     XMMATRIX world = XMMatrixIdentity();
     XMVECTOR eye   = XMVectorSet(camX_, camY_, camZ_, 1.0f);
@@ -450,6 +461,10 @@ void Game::BuildGeometryCB(GeometryCBData& cb) const
         ? static_cast<float>(rs_->GetWidth()) / rs_->GetHeight() : 1.0f;
     XMMATRIX proj = XMMatrixPerspectiveFovLH(
         XMConvertToRadians(60.0f), aspect, nearPlane_, farPlane_);
+
+    float tessMin = 1.0f, tessMax = 1.0f;
+    TessImportanceToRange(importance, tessMin, tessMax);
+
     cb = {};
     cb.World             = XMMatrixTranspose(world);
     cb.View              = XMMatrixTranspose(view);
@@ -457,15 +472,18 @@ void Game::BuildGeometryCB(GeometryCBData& cb) const
     cb.Tiling            = XMFLOAT2(4.0f, 4.0f);
     cb.UVOffset          = XMFLOAT2(uvOffsetX_, uvOffsetY_);
     cb.CameraPos         = XMFLOAT4(camX_, camY_, camZ_, 1.0f);
-    cb.DisplacementScale = 0.03f;
+    cb.DisplacementScale = 1.0f;
+    cb.TessMin           = tessMin;
+    cb.TessMax           = tessMax;
 }
 
 void Game::BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const
 {
-    BuildGeometryCB(out);
+    // Снаряды — мелкие, тесселяция для них не нужна
+    BuildGeometryCB(out, TessImportance::None);
     XMMATRIX world = XMMatrixScaling(projectileRadius_, projectileRadius_, projectileRadius_)
                    * XMMatrixTranslation(pos.x, pos.y, pos.z);
-    out.World            = XMMatrixTranspose(world);
+    out.World             = XMMatrixTranspose(world);
     out.DisplacementScale = 0.0f;
 }
 
@@ -502,15 +520,32 @@ void Game::BuildLightingCB(LightingCBData& cb) const
 
 void Game::Render()
 {
-    GeometryCBData geomCB;
     LightingCBData lightCB;
-    BuildGeometryCB(geomCB);
     BuildLightingCB(lightCB);
 
     rs_->BeginFrame();
     rs_->BeginGeometryPass();
-    rs_->DrawSceneMeshTess(geomCB);
 
+    // -----------------------------------------------------------------------
+    // Рисуем основную сцену Sponza с High-тесселяцией (TessMax = 32).
+    // Для Sponza это главный объект — колонны, арки и рельефные детали
+    // выиграют от максимальной детализации вблизи камеры.
+    //
+    // Если ты загружаешь несколько мешей раздельно, каждому можно передать
+    // свой пресет. Примеры:
+    //
+    //   BuildGeometryCB(cb, TessImportance::High)   — архитектурные детали
+    //   BuildGeometryCB(cb, TessImportance::Medium) — обычные поверхности
+    //   BuildGeometryCB(cb, TessImportance::Low)    — потолок, фон
+    //   BuildGeometryCB(cb, TessImportance::None)   — плоские/дебаг-объекты
+    // -----------------------------------------------------------------------
+    {
+        GeometryCBData geomCB;
+        BuildGeometryCB(geomCB, TessImportance::High);
+        rs_->DrawSceneMeshTess(geomCB);
+    }
+
+    // Снаряды рисуются без тесселяции (геометрический PSO, не tessellation)
     for (auto& p : projectiles_)
     {
         GeometryCBData sphereCB;

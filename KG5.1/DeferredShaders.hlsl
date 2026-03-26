@@ -1,4 +1,4 @@
-struct LightData
+цstruct LightData
 {
     float4 Position;
     float4 Direction;
@@ -18,7 +18,9 @@ cbuffer GeometryCB : register(b0)
     float2   gUVOffset;
     float4   gCameraPos;
     float    gDisplacementScale;
-    float3   _Pad0;
+    float    gTessMin;           // минимальный фактор (на максимальной дистанции)
+    float    gTessMax;           // максимальный фактор (вблизи камеры)
+    float    _Pad0;
     float4   _Pad1;
 };
 
@@ -94,6 +96,10 @@ GeomPSOut GeometryPS(GeomPSIn input)
     return o;
 }
 
+// -----------------------------------------------------------------------
+// TESSELLATION SHADERS
+// -----------------------------------------------------------------------
+
 struct TessVSOut
 {
     float4 PosW     : SV_POSITION;
@@ -121,13 +127,21 @@ struct PatchTess
     float InsideTess  : SV_InsideTessFactor;
 };
 
+// Вычисляет фактор тесселяции для точки мирового пространства.
+// Использует gTessMin / gTessMax из константного буфера, что позволяет
+// Game.cpp задавать разный диапазон для каждого draw call.
+//
+// Дистанции переключения:
+//   < minDist  -> gTessMax  (максимальная детализация, вблизи)
+//   > maxDist  -> gTessMin  (минимальная детализация, вдали)
+//   между ними -> плавная интерполяция
 float ComputeTessFactor(float3 worldPos)
 {
     float dist    = distance(worldPos, gCameraPos.xyz);
     float minDist = 2.0f;
     float maxDist = 30.0f;
     float t = saturate((dist - minDist) / (maxDist - minDist));
-    return lerp(24.0f, 1.0f, t);
+    return lerp(gTessMax, gTessMin, t);
 }
 
 PatchTess PatchHS(InputPatch<TessVSOut, 3> patch, uint patchID : SV_PrimitiveID)
@@ -170,8 +184,8 @@ GeomPSIn TessDS(PatchTess pt,
 
     normal = normalize(normal);
 
-    float dist  = distance(posW.xyz, gCameraPos.xyz);
-    float mip   = clamp(log2(max(1.0f, dist / 8.0f)), 0.0f, 6.0f);
+    float dist   = distance(posW.xyz, gCameraPos.xyz);
+    float mip    = clamp(log2(max(1.0f, dist / 8.0f)), 0.0f, 6.0f);
     float height = gDisplacementMap.SampleLevel(gSampler, texCoord, mip).r;
     posW.xyz += normal * (height * gDisplacementScale);
 
@@ -184,6 +198,10 @@ GeomPSIn TessDS(PatchTess pt,
     o.RawUV    = rawUV;
     return o;
 }
+
+// -----------------------------------------------------------------------
+// LIGHTING PASS
+// -----------------------------------------------------------------------
 
 cbuffer LightingCB : register(b0)
 {

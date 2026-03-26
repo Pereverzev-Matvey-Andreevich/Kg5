@@ -26,7 +26,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         [&](float dt)
         {
             window->GetInputDevice()->Update();
-            // Передаём InputDevice в Update — нужен для управления камерой
             game->Update(dt, window->GetInputDevice());
         },
         [&]()

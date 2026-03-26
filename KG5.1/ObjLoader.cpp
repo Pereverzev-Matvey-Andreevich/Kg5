@@ -1,4 +1,4 @@
-#include <Windows.h>        // UINT  -- must be first
+#include <Windows.h>       
 #include "ObjLoader.h"
 #include <fstream>
 #include <sstream>
@@ -6,7 +6,7 @@
 
 using namespace DirectX;
 
-// ---- Material -------------------------------------------------------
+
 struct Material
 {
     XMFLOAT4     diffuse;
@@ -14,7 +14,6 @@ struct Material
     Material() : diffuse(1.0f, 1.0f, 1.0f, 1.0f) {}
 };
 
-// ---- Helper: split "v/vt/vn" token into component indices -----------
 static void ParseFaceVert(const std::string& token,
                            int& p, int& t, int& n)
 {
@@ -38,7 +37,6 @@ static void ParseFaceVert(const std::string& token,
     if (parts.size() > 2 && !parts[2].empty()) n = std::stoi(parts[2]);
 }
 
-// ---- Load MTL file --------------------------------------------------
 static std::map<std::string, Material>
 LoadMtl(const std::wstring& mtlPath, const std::wstring& dir)
 {
@@ -77,14 +75,12 @@ LoadMtl(const std::wstring& mtlPath, const std::wstring& dir)
     return mats;
 }
 
-// ---- Main OBJ loader ------------------------------------------------
 ObjResult LoadObj(const std::wstring& path)
 {
     ObjResult out;
     std::ifstream f(path);
     if (!f) return out;
 
-    // Extract directory for relative path resolution
     std::wstring dir;
     {
         size_t sep = path.find_last_of(L"\\/");
@@ -108,32 +104,31 @@ ObjResult LoadObj(const std::wstring& path)
         std::string token;
         ss >> token;
 
-        // --- Positions ---
         if (token == "v")
         {
             float x, y, z; ss >> x >> y >> z;
             positions.push_back(XMFLOAT3(x, y, z));
         }
-        // --- Texture coords ---
+
         else if (token == "vt")
         {
             float u, v; ss >> u >> v;
-            texcoords.push_back(XMFLOAT2(u, 1.0f - v)); // flip V for D3D
+            texcoords.push_back(XMFLOAT2(u, 1.0f - v)); 
         }
-        // --- Normals ---
+        
         else if (token == "vn")
         {
             float x, y, z; ss >> x >> y >> z;
             normals.push_back(XMFLOAT3(x, y, z));
         }
-        // --- Material library ---
+        
         else if (token == "mtllib")
         {
             std::string name; ss >> name;
             std::wstring mtlPath = dir + std::wstring(name.begin(), name.end());
             materials = LoadMtl(mtlPath, dir);
         }
-        // --- Use material ---
+        
         else if (token == "usemtl")
         {
             std::string name; ss >> name;
@@ -144,7 +139,7 @@ ObjResult LoadObj(const std::wstring& path)
                     out.texturePath = curMat.texturePath;
             }
         }
-        // --- Faces ---
+        
         else if (token == "f")
         {
             std::vector<int> pIdx, tIdx, nIdx;
@@ -154,7 +149,7 @@ ObjResult LoadObj(const std::wstring& path)
                 int p = 0, t = 0, n = 0;
                 ParseFaceVert(vert, p, t, n);
 
-                // Handle negative (relative) indices
+                
                 if (p < 0) p = (int)positions.size() + p + 1;
                 if (t < 0) t = (int)texcoords.size() + t + 1;
                 if (n < 0) n = (int)normals.size()   + n + 1;
@@ -164,10 +159,10 @@ ObjResult LoadObj(const std::wstring& path)
                 nIdx.push_back(n);
             }
 
-            // Triangulate as a fan (works for convex polygons)
+            
             for (int i = 1; i + 1 < (int)pIdx.size(); ++i)
             {
-                // Replaced range-for with initializer list by explicit loop
+                
                 int fan[3] = { 0, i, i + 1 };
                 for (int fi = 0; fi < 3; ++fi)
                 {
@@ -199,7 +194,7 @@ ObjResult LoadObj(const std::wstring& path)
 
     if (out.vertices.empty()) return out;
 
-    // --- Compute flat normals if OBJ had none ---
+    
     if (normals.empty())
     {
         for (UINT i = 0; i + 2 < (UINT)out.indices.size(); i += 3)

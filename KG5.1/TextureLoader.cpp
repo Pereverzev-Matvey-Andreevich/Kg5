@@ -2,14 +2,12 @@
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
 
-// ============================================================
-//  Load image via Windows Imaging Component (WIC)
-// ============================================================
+
 TextureData LoadTextureWIC(const std::wstring& path)
 {
     TextureData td;
 
-    // Initialise COM (safe to call multiple times)
+    
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     ComPtr<IWICImagingFactory> factory;
@@ -18,19 +16,19 @@ TextureData LoadTextureWIC(const std::wstring& path)
         CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
         return td;
 
-    // Open file
+    
     ComPtr<IWICBitmapDecoder> decoder;
     if (FAILED(factory->CreateDecoderFromFilename(
         path.c_str(), nullptr, GENERIC_READ,
         WICDecodeMetadataCacheOnLoad, &decoder)))
         return td;
 
-    // Get first frame
+    
     ComPtr<IWICBitmapFrameDecode> frame;
     if (FAILED(decoder->GetFrame(0, &frame)))
         return td;
 
-    // Convert to 32-bit RGBA (handles all source formats)
+    
     ComPtr<IWICFormatConverter> conv;
     factory->CreateFormatConverter(&conv);
     if (FAILED(conv->Initialize(
@@ -53,9 +51,7 @@ TextureData LoadTextureWIC(const std::wstring& path)
     return td;
 }
 
-// ============================================================
-//  Procedural checkerboard (fallback when no texture file)
-// ============================================================
+
 TextureData CreateCheckerboard(UINT size, UINT tileSize)
 {
     TextureData td;
@@ -70,10 +66,10 @@ TextureData CreateCheckerboard(UINT size, UINT tileSize)
         {
             bool light = ((x / tileSize) + (y / tileSize)) % 2 == 0;
             UINT i = (y * size + x) * 4;
-            td.pixels[i + 0] = light ? 210 : 50;   // R
-            td.pixels[i + 1] = light ? 210 : 50;   // G
-            td.pixels[i + 2] = light ? 220 : 180;  // B (slight blue tint on light)
-            td.pixels[i + 3] = 255;                 // A
+            td.pixels[i + 0] = light ? 210 : 50;   
+            td.pixels[i + 1] = light ? 210 : 50;   
+            td.pixels[i + 2] = light ? 220 : 180;  
+            td.pixels[i + 3] = 255;                 
         }
     }
     return td;

@@ -36,6 +36,40 @@ struct LightData
 
 #define MAX_LIGHTS 64
 
+// -----------------------------------------------------------------------
+// Пресеты важности объекта: определяют диапазон уровней тесселяции.
+//
+//   HIGH   — колонны, арки, детализированные элементы Sponza (до 32х)
+//   MEDIUM — обычные стены, полы, средний уровень деталей (до 16х)
+//   LOW    — задние планы, потолки, малозначимые объекты (до 4х)
+//   NONE   — тесселяция 1 (отключена, для снарядов / дебаг-объектов)
+// -----------------------------------------------------------------------
+enum class TessImportance
+{
+    High   = 0,
+    Medium = 1,
+    Low    = 2,
+    None   = 3
+};
+
+// Вспомогательная функция — преобразует пресет в конкретные значения
+inline void TessImportanceToRange(TessImportance imp,
+                                   float& outMin, float& outMax)
+{
+    switch (imp)
+    {
+    case TessImportance::High:
+        outMin = 1.0f;  outMax = 32.0f; break;
+    case TessImportance::Medium:
+        outMin = 1.0f;  outMax = 16.0f; break;
+    case TessImportance::Low:
+        outMin = 1.0f;  outMax = 4.0f;  break;
+    case TessImportance::None:
+    default:
+        outMin = 1.0f;  outMax = 1.0f;  break;
+    }
+}
+
 struct GeometryCBData
 {
     XMMATRIX World;
@@ -45,7 +79,9 @@ struct GeometryCBData
     XMFLOAT2 UVOffset;
     XMFLOAT4 CameraPos;
     float    DisplacementScale;
-    float    Pad[7];
+    float    TessMin;          // минимальный фактор тесселяции (вдали)
+    float    TessMax;          // максимальный фактор тесселяции (вблизи)
+    float    Pad[5];
 };
 static_assert(sizeof(GeometryCBData) == 256, "GeometryCBData must be 256 bytes");
 

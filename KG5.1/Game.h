@@ -15,22 +15,16 @@ struct Projectile
     bool     stuck;
 };
 
-// Uniform grid for fast triangle lookup by world position.
-// At build time each triangle is inserted into every cell its AABB overlaps.
-// At query time only cells overlapping sphere(pos, r) are visited.
 struct TriGrid
 {
     float    cellSize = 2.0f;
     XMFLOAT3 origin   = {};
     int      nx = 0, ny = 0, nz = 0;
 
-    // Flat 3D array: cell index -> list of triangle indices (into triSoup / 3)
     std::vector<std::vector<uint32_t>> cells;
 
-    // Build from flat triangle soup (3 XMFLOAT3 per triangle).
     void Build(const std::vector<XMFLOAT3>& soup);
 
-    // Fill 'out' with deduplicated triangle indices overlapping sphere(pos, r).
     void Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const;
 
     bool Empty() const { return cells.empty(); }
@@ -49,7 +43,15 @@ public:
 
 private:
     void SetupLights();
-    void BuildGeometryCB(GeometryCBData& out) const;
+
+    // importance — пресет тесселяции для данного draw call.
+    // TessImportance::High   -> TessMax=32  (детали, колонны Sponza)
+    // TessImportance::Medium -> TessMax=16  (стены, полы)
+    // TessImportance::Low    -> TessMax=4   (потолки, задний план)
+    // TessImportance::None   -> TessMax=1   (снаряды, дебаг-объекты)
+    void BuildGeometryCB(GeometryCBData& out,
+                         TessImportance importance = TessImportance::Medium) const;
+
     void BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const;
     void BuildLightingCB(LightingCBData& out) const;
     void Shoot();
@@ -58,10 +60,9 @@ private:
     std::vector<LightData>           lights_;
     std::vector<Projectile>          projectiles_;
 
-    // CPU-side triangle data for collision
-    std::vector<XMFLOAT3> triSoup_;  // flat: every 3 entries = one triangle
-    TriGrid               collGrid_; // spatial acceleration over triSoup_
-    std::vector<uint32_t> queryBuf_; // reusable buffer for grid queries (avoids alloc)
+    std::vector<XMFLOAT3> triSoup_;
+    TriGrid               collGrid_;
+    std::vector<uint32_t> queryBuf_;
 
     float time_      = 0.0f;
     float uvOffsetX_ = 0.0f;
