@@ -96,6 +96,10 @@ void TriGrid::Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const
     }
 }
 
+// -----------------------------------------------------------------------
+// Octree
+// -----------------------------------------------------------------------
+
 bool Octree::AABBInFrustum(const AABB& aabb, const Frustum& f)
 {
     for (int i = 0; i < 6; ++i)
@@ -169,16 +173,19 @@ void Octree::BuildRecursive(OctreeNode* node,
                        depth + 1, maxDepth, maxPerNode);
 }
 
-void Octree::Build(const std::vector<SceneObject>& objects, int maxDepth, int maxPerNode)
+void Octree::Build(const std::vector<SceneObject>& objects,
+                   const std::vector<int>& staticIndices,
+                   int maxDepth, int maxPerNode)
 {
     root_.reset();
-    if (objects.empty()) return;
+    if (staticIndices.empty()) return;
 
     AABB bounds;
-    bounds.min = objects[0].worldAABB.min;
-    bounds.max = objects[0].worldAABB.max;
-    for (const auto& o : objects)
+    bounds.min = objects[staticIndices[0]].worldAABB.min;
+    bounds.max = objects[staticIndices[0]].worldAABB.max;
+    for (int idx : staticIndices)
     {
+        const auto& o = objects[idx];
         bounds.min.x = fminf(bounds.min.x, o.worldAABB.min.x);
         bounds.min.y = fminf(bounds.min.y, o.worldAABB.min.y);
         bounds.min.z = fminf(bounds.min.z, o.worldAABB.min.z);
@@ -191,12 +198,7 @@ void Octree::Build(const std::vector<SceneObject>& objects, int maxDepth, int ma
     root_->bounds = bounds;
     root_->isLeaf = true;
 
-    std::vector<int> allIndices;
-    allIndices.reserve(objects.size());
-    for (int i = 0; i < (int)objects.size(); ++i)
-        allIndices.push_back(i);
-
-    BuildRecursive(root_.get(), objects, allIndices, 0, maxDepth, maxPerNode);
+    BuildRecursive(root_.get(), objects, staticIndices, 0, maxDepth, maxPerNode);
 }
 
 void Octree::QueryNode(const OctreeNode* node, const Frustum& f, std::vector<int>& out) const
@@ -216,6 +218,8 @@ void Octree::QueryFrustum(const Frustum& f, std::vector<int>& out) const
     if (!root_) return;
     QueryNode(root_.get(), f, out);
 }
+
+// -----------------------------------------------------------------------
 
 static XMVECTOR ClosestPointOnTriangle(XMVECTOR P,
                                         XMVECTOR A, XMVECTOR B, XMVECTOR C)
@@ -279,10 +283,24 @@ static bool AABBInFrustumBrute(const AABB& aabb, const Frustum& f)
     return true;
 }
 
+// -----------------------------------------------------------------------
+// Game
+// -----------------------------------------------------------------------
+
 Game::Game(HWND hwnd, int width, int height)
     : hwnd_(hwnd), width_(width), height_(height)
 {
     rs_ = std::make_unique<RenderingSystem>(hwnd, width, height);
+}
+
+void Game::RecalcAABB(SceneObject& obj)
+{
+    obj.worldAABB.min = { obj.position.x - obj.scale,
+                          obj.position.y - obj.scale,
+                          obj.position.z - obj.scale };
+    obj.worldAABB.max = { obj.position.x + obj.scale,
+                          obj.position.y + obj.scale,
+                          obj.position.z + obj.scale };
 }
 
 bool Game::Initialize()
@@ -303,7 +321,6 @@ bool Game::Initialize()
         if (GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES)
         {
             rs_->LoadMeshFromObj(full);
-
             ObjResult obj = LoadObj(full);
             if (obj.valid)
             {
@@ -311,7 +328,6 @@ bool Game::Initialize()
                 for (UINT idx : obj.indices)
                     triSoup_.push_back(obj.vertices[idx].Position);
             }
-
             modelLoaded = true;
             break;
         }
@@ -319,7 +335,6 @@ bool Game::Initialize()
     if (!modelLoaded)
     {
         rs_->LoadMeshFromBuiltin();
-
         float s = 0.5f;
         struct F { XMFLOAT3 v[4]; };
         F faces[] = {
@@ -339,6 +354,7 @@ bool Game::Initialize()
 
     collGrid_.Build(triSoup_);
 
+    // textures
     {
         TextureData td = LoadTextureWIC(dir + L"texture1.png");
         if (!td.valid) td = LoadTextureWIC(dir + L"texture1.jpg");
@@ -392,29 +408,57 @@ bool Game::Initialize()
         rs_->LoadTexture(td, 3);
     }
 
+    // ==================================================================
+    // 950 static (small) + 50 dynamic (big, orbiting, glowing)
+    // ==================================================================
     srand(1337);
-    const int NUM_OBJECTS = 1000;
-    sceneObjects_.reserve(NUM_OBJECTS);
-    for (int i = 0; i < NUM_OBJECTS; ++i)
-    {
-        auto rng = [](float lo, float hi) -> float
-        {
-            return lo + (hi - lo) * ((float)rand() / (float)RAND_MAX);
-        };
+    auto rng = [](float lo, float hi) -> float {
+        return lo + (hi - lo) * ((float)rand() / (float)RAND_MAX);
+    };
+    const float PI = 3.14159265f;
 
-        SceneObject obj;
-        obj.position = { rng(-20.0f, 20.0f), rng(0.3f, 14.0f), rng(-7.0f, 7.0f) };
-        obj.scale    = rng(0.2f, 0.6f);
-        obj.worldAABB.min = { obj.position.x - obj.scale,
-                              obj.position.y - obj.scale,
-                              obj.position.z - obj.scale };
-        obj.worldAABB.max = { obj.position.x + obj.scale,
-                              obj.position.y + obj.scale,
-                              obj.position.z + obj.scale };
+    sceneObjects_.reserve(1000);
+
+    for (int i = 0; i < 950; ++i)
+    {
+        SceneObject obj = {};
+        obj.position     = { rng(-20.0f, 20.0f), rng(0.3f, 14.0f), rng(-7.0f, 7.0f) };
+        obj.scale        = rng(0.2f, 0.5f);
+        obj.isStatic     = true;
+        obj.basePosition = obj.position;
+        obj.orbitRadius  = 0; obj.orbitSpeed = 0; obj.orbitPhase = 0;
+        obj.bobSpeed     = 0; obj.bobAmplitude = 0;
+        RecalcAABB(obj);
         sceneObjects_.push_back(obj);
     }
 
-    octree_.Build(sceneObjects_);
+    for (int i = 0; i < 50; ++i)
+    {
+        SceneObject obj = {};
+        obj.basePosition = { rng(-15.0f, 15.0f), rng(2.0f, 12.0f), rng(-5.0f, 5.0f) };
+        obj.position     = obj.basePosition;
+        obj.scale        = rng(0.8f, 1.5f);
+        obj.isStatic     = false;
+        obj.orbitRadius  = rng(3.0f, 8.0f);
+        obj.orbitSpeed   = rng(0.5f, 2.0f);
+        obj.orbitPhase   = rng(0.0f, 2.0f * PI);
+        obj.bobSpeed     = rng(1.0f, 3.0f);
+        obj.bobAmplitude = rng(1.0f, 3.0f);
+        RecalcAABB(obj);
+        sceneObjects_.push_back(obj);
+    }
+
+    for (int i = 0; i < (int)sceneObjects_.size(); ++i)
+    {
+        if (sceneObjects_[i].isStatic)
+            staticIndices_.push_back(i);
+        else
+            dynamicIndices_.push_back(i);
+    }
+
+    // Octree built ONCE here — counter incremented to 1
+    octree_.Build(sceneObjects_, staticIndices_);
+    octreeRebuilds_ = 1;
 
     SetupLights();
     return true;
@@ -423,7 +467,6 @@ bool Game::Initialize()
 void Game::SetupLights()
 {
     lights_.clear();
-
     {
         LightData l = {};
         l.Type     = static_cast<int>(LightType::Point);
@@ -456,16 +499,13 @@ void Game::Shoot()
 {
     float cosPitch = cosf(camPitch_);
     XMFLOAT3 dir = {
-        sinf(camYaw_)  * cosPitch,
+        sinf(camYaw_) * cosPitch,
        -sinf(camPitch_),
-        cosf(camYaw_)  * cosPitch
+        cosf(camYaw_) * cosPitch
     };
-
     Projectile p;
     p.position     = { camX_, camY_, camZ_ };
-    p.velocity     = { dir.x * projectileSpeed_,
-                       dir.y * projectileSpeed_,
-                       dir.z * projectileSpeed_ };
+    p.velocity     = { dir.x * projectileSpeed_, dir.y * projectileSpeed_, dir.z * projectileSpeed_ };
     p.distTraveled = 0.0f;
     p.stuck        = false;
     projectiles_.push_back(p);
@@ -473,12 +513,14 @@ void Game::Shoot()
 
 void Game::UpdateTitle()
 {
-    wchar_t buf[256];
-    const wchar_t* fc     = frustumCulling_ ? L"ON"  : L"OFF";
-    const wchar_t* octree = useOctree_      ? L"ON"  : L"OFF";
-    int total = (int)sceneObjects_.size();
-    swprintf_s(buf, L"FC:%s  OCTREE:%s  VISIBLE:%d/%d  [G]-toggle FC  [H]-toggle Octree",
-               fc, octree, visibleCount_, total);
+    wchar_t buf[512];
+    swprintf_s(buf,
+        L"Frame:%d | OctreeBuilds:%d (once!) | Static:%d/%d (octree) | Dynamic:%d/%d (brute,every frame) | DynCullCalls:%d | [G]FC [H]Octree",
+        frameNumber_,
+        octreeRebuilds_,
+        visibleStatic_, (int)staticIndices_.size(),
+        visibleDynamic_, (int)dynamicIndices_.size(),
+        dynamicCullCalls_);
     SetWindowTextW(hwnd_, buf);
 }
 
@@ -497,7 +539,6 @@ Frustum Game::BuildFrustum() const
         XMConvertToRadians(60.0f), aspect, nearPlane_, farPlane_);
 
     XMMATRIX vp = view * proj;
-
     XMFLOAT4X4 m;
     XMStoreFloat4x4(&m, vp);
 
@@ -511,10 +552,22 @@ Frustum Game::BuildFrustum() const
     return f;
 }
 
+void Game::UpdateDynamicObjects(float dt)
+{
+    for (int idx : dynamicIndices_)
+    {
+        SceneObject& obj = sceneObjects_[idx];
+        obj.orbitPhase += obj.orbitSpeed * dt;
+        obj.position.x = obj.basePosition.x + cosf(obj.orbitPhase) * obj.orbitRadius;
+        obj.position.z = obj.basePosition.z + sinf(obj.orbitPhase) * obj.orbitRadius;
+        obj.position.y = obj.basePosition.y + sinf(obj.orbitPhase * obj.bobSpeed) * obj.bobAmplitude;
+        RecalcAABB(obj);
+    }
+}
+
 void Game::Update(float deltaTime, InputDevice* input)
 {
     if (deltaTime > 0.033f) deltaTime = 0.033f;
-
     time_ += deltaTime;
 
     uvOffsetX_ += 0.03f * deltaTime;
@@ -537,108 +590,83 @@ void Game::Update(float deltaTime, InputDevice* input)
         float fx = sinf(camYaw_) * cosPitch;
         float fy = -sinf(camPitch_);
         float fz = cosf(camYaw_) * cosPitch;
-
         float rx =  cosf(camYaw_);
-        float ry =  0.0f;
         float rz = -sinf(camYaw_);
 
         float speed = moveSpeed_ * deltaTime;
         if (input->IsKeyDown(VK_SHIFT)) speed *= 3.0f;
 
-        if (input->IsKeyDown('W')) { camX_ += fx * speed; camY_ += fy * speed; camZ_ += fz * speed; }
-        if (input->IsKeyDown('S')) { camX_ -= fx * speed; camY_ -= fy * speed; camZ_ -= fz * speed; }
-        if (input->IsKeyDown('D')) { camX_ += rx * speed; camY_ += ry * speed; camZ_ += rz * speed; }
-        if (input->IsKeyDown('A')) { camX_ -= rx * speed; camY_ -= ry * speed; camZ_ -= rz * speed; }
+        if (input->IsKeyDown('W')) { camX_ += fx*speed; camY_ += fy*speed; camZ_ += fz*speed; }
+        if (input->IsKeyDown('S')) { camX_ -= fx*speed; camY_ -= fy*speed; camZ_ -= fz*speed; }
+        if (input->IsKeyDown('D')) { camX_ += rx*speed; camZ_ += rz*speed; }
+        if (input->IsKeyDown('A')) { camX_ -= rx*speed; camZ_ -= rz*speed; }
         if (input->IsKeyDown('E')) { camY_ += speed; }
         if (input->IsKeyDown('Q')) { camY_ -= speed; }
 
         bool spaceNow = input->IsKeyDown(VK_SPACE);
-        if (spaceNow && !prevSpace_)
-            Shoot();
+        if (spaceNow && !prevSpace_) Shoot();
         prevSpace_ = spaceNow;
 
         bool f1Now = input->IsKeyDown('F');
-        if (f1Now && !prevF1_)
-        {
-            wireframe_ = !wireframe_;
-            rs_->SetWireframe(wireframe_);
-        }
+        if (f1Now && !prevF1_) { wireframe_ = !wireframe_; rs_->SetWireframe(wireframe_); }
         prevF1_ = f1Now;
 
         bool gNow = input->IsKeyDown('G');
-        if (gNow && !prevG_)
-            frustumCulling_ = !frustumCulling_;
+        if (gNow && !prevG_) frustumCulling_ = !frustumCulling_;
         prevG_ = gNow;
 
         bool hNow = input->IsKeyDown('H');
-        if (hNow && !prevH_)
-            useOctree_ = !useOctree_;
+        if (hNow && !prevH_) useOctree_ = !useOctree_;
         prevH_ = hNow;
     }
 
-    const float r       = projectileRadius_;
-    const float r2      = r * r;
-    const float subStep = r * 0.5f;
+    // Dynamic objects move every frame
+    UpdateDynamicObjects(deltaTime);
 
+    // Projectile physics
+    const float r = projectileRadius_, r2 = r * r, subStep = r * 0.5f;
     for (auto& p : projectiles_)
     {
         if (p.stuck) continue;
-
         float moveDist = projectileSpeed_ * deltaTime;
         p.distTraveled += moveDist;
-        if (p.distTraveled >= projectileMaxDist_)
-        {
-            p.stuck = true;
-            continue;
-        }
+        if (p.distTraveled >= projectileMaxDist_) { p.stuck = true; continue; }
 
         float invSpd = 1.0f / projectileSpeed_;
-        XMFLOAT3 dirF = { p.velocity.x * invSpd,
-                           p.velocity.y * invSpd,
-                           p.velocity.z * invSpd };
+        XMFLOAT3 dirF = { p.velocity.x*invSpd, p.velocity.y*invSpd, p.velocity.z*invSpd };
         XMVECTOR dir = XMLoadFloat3(&dirF);
-
         float remaining = moveDist;
         while (remaining > 0.0f)
         {
             float step = (remaining < subStep) ? remaining : subStep;
             remaining -= step;
-
             XMVECTOR pos = XMLoadFloat3(&p.position);
             pos = XMVectorAdd(pos, XMVectorScale(dir, step));
             XMStoreFloat3(&p.position, pos);
-
             if (collGrid_.Empty()) continue;
-
             queryBuf_.clear();
             collGrid_.Query(p.position, r, queryBuf_);
-
             bool hit = false;
             for (uint32_t ti : queryBuf_)
             {
-                XMVECTOR A = XMLoadFloat3(&triSoup_[ti * 3 + 0]);
-                XMVECTOR B = XMLoadFloat3(&triSoup_[ti * 3 + 1]);
-                XMVECTOR C = XMLoadFloat3(&triSoup_[ti * 3 + 2]);
-
+                XMVECTOR A = XMLoadFloat3(&triSoup_[ti*3+0]);
+                XMVECTOR B = XMLoadFloat3(&triSoup_[ti*3+1]);
+                XMVECTOR C = XMLoadFloat3(&triSoup_[ti*3+2]);
                 XMVECTOR closest = ClosestPointOnTriangle(pos, A, B, C);
-                XMVECTOR diff    = XMVectorSubtract(pos, closest);
-                float    dist2   = XMVectorGetX(XMVector3Dot(diff, diff));
-
+                XMVECTOR diff = XMVectorSubtract(pos, closest);
+                float dist2 = XMVectorGetX(XMVector3Dot(diff, diff));
                 if (dist2 <= r2)
                 {
                     if (dist2 > 1e-8f)
                     {
-                        float    dist   = sqrtf(dist2);
+                        float dist = sqrtf(dist2);
                         XMVECTOR normal = XMVectorScale(diff, 1.0f / dist);
                         pos = XMVectorAdd(closest, XMVectorScale(normal, r));
                         XMStoreFloat3(&p.position, pos);
                     }
-                    p.stuck = true;
-                    hit     = true;
-                    break;
+                    p.stuck = true; hit = true; break;
                 }
             }
-
             if (hit) break;
         }
     }
@@ -646,140 +674,157 @@ void Game::Update(float deltaTime, InputDevice* input)
 
 void Game::BuildGeometryCB(GeometryCBData& cb, TessImportance importance) const
 {
-    XMMATRIX world = XMMatrixIdentity();
-    XMVECTOR eye   = XMVectorSet(camX_, camY_, camZ_, 1.0f);
+    XMVECTOR eye = XMVectorSet(camX_, camY_, camZ_, 1.0f);
     float cosPitch = cosf(camPitch_);
     XMVECTOR forward = XMVectorSet(
-        sinf(camYaw_) * cosPitch, -sinf(camPitch_),
-        cosf(camYaw_) * cosPitch, 0.0f);
-    XMVECTOR target = XMVectorAdd(eye, forward);
-    XMVECTOR up     = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    XMMATRIX view   = XMMatrixLookAtLH(eye, target, up);
-    float aspect = (rs_->GetHeight() > 0)
-        ? static_cast<float>(rs_->GetWidth()) / rs_->GetHeight() : 1.0f;
-    XMMATRIX proj = XMMatrixPerspectiveFovLH(
-        XMConvertToRadians(60.0f), aspect, nearPlane_, farPlane_);
+        sinf(camYaw_)*cosPitch, -sinf(camPitch_), cosf(camYaw_)*cosPitch, 0.0f);
+    XMVECTOR up   = XMVectorSet(0,1,0,0);
+    XMMATRIX view = XMMatrixLookAtLH(eye, XMVectorAdd(eye, forward), up);
+    float aspect = (rs_->GetHeight() > 0) ? (float)rs_->GetWidth()/rs_->GetHeight() : 1.0f;
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(XMConvertToRadians(60.0f), aspect, nearPlane_, farPlane_);
 
-    float tessMin = 1.0f, tessMax = 1.0f;
+    float tessMin = 1, tessMax = 1;
     TessImportanceToRange(importance, tessMin, tessMax);
 
     cb = {};
-    cb.World             = XMMatrixTranspose(world);
-    cb.View              = XMMatrixTranspose(view);
-    cb.Proj              = XMMatrixTranspose(proj);
-    cb.Tiling            = XMFLOAT2(4.0f, 4.0f);
-    cb.UVOffset          = XMFLOAT2(uvOffsetX_, uvOffsetY_);
-    cb.CameraPos         = XMFLOAT4(camX_, camY_, camZ_, 1.0f);
+    cb.World = XMMatrixTranspose(XMMatrixIdentity());
+    cb.View  = XMMatrixTranspose(view);
+    cb.Proj  = XMMatrixTranspose(proj);
+    cb.Tiling   = XMFLOAT2(4,4);
+    cb.UVOffset = XMFLOAT2(uvOffsetX_, uvOffsetY_);
+    cb.CameraPos = XMFLOAT4(camX_, camY_, camZ_, 1);
     cb.DisplacementScale = 1.0f;
-    cb.TessMin           = tessMin;
-    cb.TessMax           = tessMax;
+    cb.TessMin = tessMin;
+    cb.TessMax = tessMax;
 }
 
-void Game::BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const
+void Game::BuildGeometryCBForObject(GeometryCBData& out, const SceneObject& obj) const
 {
     BuildGeometryCB(out, TessImportance::None);
-    XMMATRIX world = XMMatrixScaling(projectileRadius_, projectileRadius_, projectileRadius_)
-                   * XMMatrixTranslation(pos.x, pos.y, pos.z);
-    out.World             = XMMatrixTranspose(world);
+    XMMATRIX world = XMMatrixScaling(obj.scale, obj.scale, obj.scale)
+                   * XMMatrixTranslation(obj.position.x, obj.position.y, obj.position.z);
+    out.World = XMMatrixTranspose(world);
+    out.DisplacementScale = 0.0f;
+    if (!obj.isStatic)
+        out.Tiling = XMFLOAT2(1, 1);
+}
+
+void Game::BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos, float scl) const
+{
+    BuildGeometryCB(out, TessImportance::None);
+    XMMATRIX world = XMMatrixScaling(scl, scl, scl) * XMMatrixTranslation(pos.x, pos.y, pos.z);
+    out.World = XMMatrixTranspose(world);
     out.DisplacementScale = 0.0f;
 }
 
 void Game::BuildLightingCB(LightingCBData& cb) const
 {
     cb = {};
-    cb.CameraPos = XMFLOAT4(camX_, camY_, camZ_, 1.0f);
+    cb.CameraPos = XMFLOAT4(camX_, camY_, camZ_, 1);
 
     std::vector<LightData> allLights = lights_;
 
-    auto addProjectileLight = [&](const Projectile& p)
+    // Each dynamic object emits an orange glow
+    for (int idx : dynamicIndices_)
     {
+        if ((int)allLights.size() >= MAX_LIGHTS) break;
+        const auto& obj = sceneObjects_[idx];
+        LightData l = {};
+        l.Type     = static_cast<int>(LightType::Point);
+        l.Position = { obj.position.x, obj.position.y, obj.position.z, 1 };
+        l.Color    = { 1.0f, 0.3f, 0.1f, 15.0f };
+        l.Range    = 12.0f;
+        allLights.push_back(l);
+    }
+
+    auto addProjLight = [&](const Projectile& p) {
         if ((int)allLights.size() >= MAX_LIGHTS) return;
         LightData l = {};
         l.Type     = static_cast<int>(LightType::Point);
-        l.Position = { p.position.x, p.position.y, p.position.z, 1.0f };
+        l.Position = { p.position.x, p.position.y, p.position.z, 1 };
         l.Color    = { 0.7f, 0.0f, 1.0f, 20.0f };
         l.Range    = 30.0f;
         allLights.push_back(l);
     };
+    for (auto& p : projectiles_) if (p.stuck)  addProjLight(p);
+    for (auto& p : projectiles_) if (!p.stuck) addProjLight(p);
 
-    for (auto& p : projectiles_)
-        if (p.stuck)  addProjectileLight(p);
-
-    for (auto& p : projectiles_)
-        if (!p.stuck) addProjectileLight(p);
-
-    cb.LightCount = static_cast<int>(allLights.size());
+    cb.LightCount = (int)allLights.size();
     int count = (int)allLights.size();
     if (count > MAX_LIGHTS) count = MAX_LIGHTS;
-    for (int i = 0; i < count; ++i)
-        cb.Lights[i] = allLights[i];
+    for (int i = 0; i < count; ++i) cb.Lights[i] = allLights[i];
 }
 
 void Game::Render()
 {
+    ++frameNumber_;
+
     LightingCBData lightCB;
     BuildLightingCB(lightCB);
 
     Frustum frustum = BuildFrustum();
 
-    std::vector<int> visibleIndices;
-    visibleIndices.reserve(sceneObjects_.size());
+    // ==================================================================
+    // CULLING
+    //   Static  -> octree (built ONCE at init, octreeRebuilds_ stays 1)
+    //   Dynamic -> brute force every frame (dynamicCullCalls_ grows)
+    // ==================================================================
+    std::vector<int> visStaticList, visDynamicList;
+    visStaticList.reserve(staticIndices_.size());
+    visDynamicList.reserve(dynamicIndices_.size());
 
     if (!frustumCulling_)
     {
-        for (int i = 0; i < (int)sceneObjects_.size(); ++i)
-            visibleIndices.push_back(i);
-    }
-    else if (useOctree_)
-    {
-        octree_.QueryFrustum(frustum, visibleIndices);
+        visStaticList  = staticIndices_;
+        visDynamicList = dynamicIndices_;
     }
     else
     {
-        for (int i = 0; i < (int)sceneObjects_.size(); ++i)
-            if (AABBInFrustumBrute(sceneObjects_[i].worldAABB, frustum))
-                visibleIndices.push_back(i);
+        // STATIC: use pre-built octree (never rebuilt)
+        if (useOctree_)
+            octree_.QueryFrustum(frustum, visStaticList);
+        else
+            for (int idx : staticIndices_)
+                if (AABBInFrustumBrute(sceneObjects_[idx].worldAABB, frustum))
+                    visStaticList.push_back(idx);
+
+        // DYNAMIC: brute force EVERY FRAME (they moved since last frame)
+        for (int idx : dynamicIndices_)
+            if (AABBInFrustumBrute(sceneObjects_[idx].worldAABB, frustum))
+                visDynamicList.push_back(idx);
+
+        // This counter grows every frame — proof of per-frame work
+        ++dynamicCullCalls_;
     }
 
-    visibleCount_ = (int)visibleIndices.size();
+    visibleStatic_  = (int)visStaticList.size();
+    visibleDynamic_ = (int)visDynamicList.size();
     UpdateTitle();
 
+    // ==================================================================
+    // DRAW
+    // ==================================================================
     rs_->BeginFrame();
     rs_->BeginGeometryPass();
 
-    {
-        GeometryCBData geomCB;
-        BuildGeometryCB(geomCB, TessImportance::High);
-        rs_->DrawSceneMeshTess(geomCB);
-    }
+    { GeometryCBData cb; BuildGeometryCB(cb, TessImportance::High); rs_->DrawSceneMeshTess(cb); }
 
-    for (int idx : visibleIndices)
-    {
-        const SceneObject& obj = sceneObjects_[idx];
-        GeometryCBData cb;
-        BuildGeometryCB(cb, TessImportance::None);
-        XMMATRIX world = XMMatrixScaling(obj.scale, obj.scale, obj.scale)
-                       * XMMatrixTranslation(obj.position.x, obj.position.y, obj.position.z);
-        cb.World             = XMMatrixTranspose(world);
-        cb.DisplacementScale = 0.0f;
-        rs_->DrawSphere(cb);
-    }
+    for (int idx : visStaticList)
+    { GeometryCBData cb; BuildGeometryCBForObject(cb, sceneObjects_[idx]); rs_->DrawSphere(cb); }
+
+    for (int idx : visDynamicList)
+    { GeometryCBData cb; BuildGeometryCBForObject(cb, sceneObjects_[idx]); rs_->DrawSphere(cb); }
 
     for (auto& p : projectiles_)
-    {
-        GeometryCBData sphereCB;
-        BuildGeometryCBForSphere(sphereCB, p.position);
-        rs_->DrawSphere(sphereCB);
-    }
+    { GeometryCBData cb; BuildGeometryCBForSphere(cb, p.position, projectileRadius_); rs_->DrawSphere(cb); }
 
     rs_->EndGeometryPass();
     rs_->DoLightingPass(lightCB);
     rs_->EndFrame();
 }
 
-void Game::Resize(int width, int height)
+void Game::Resize(int w, int h)
 {
-    width_  = width;
-    height_ = height;
-    rs_->Resize(width, height);
+    width_ = w; height_ = h;
+    rs_->Resize(w, h);
 }

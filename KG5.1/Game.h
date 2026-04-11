@@ -39,6 +39,14 @@ struct SceneObject
     XMFLOAT3 position;
     float    scale;
     AABB     worldAABB;
+    bool     isStatic;
+
+    XMFLOAT3 basePosition;
+    float    orbitRadius;
+    float    orbitSpeed;
+    float    orbitPhase;
+    float    bobSpeed;
+    float    bobAmplitude;
 };
 
 struct Plane
@@ -62,7 +70,9 @@ struct OctreeNode
 class Octree
 {
 public:
-    void Build(const std::vector<SceneObject>& objects, int maxDepth = 7, int maxPerNode = 8);
+    void Build(const std::vector<SceneObject>& objects,
+               const std::vector<int>& staticIndices,
+               int maxDepth = 7, int maxPerNode = 8);
     void QueryFrustum(const Frustum& f, std::vector<int>& out) const;
     bool Empty() const { return !root_; }
 
@@ -94,11 +104,14 @@ private:
 
     void BuildGeometryCB(GeometryCBData& out,
                          TessImportance importance = TessImportance::Medium) const;
-    void BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const;
+    void BuildGeometryCBForObject(GeometryCBData& out, const SceneObject& obj) const;
+    void BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos, float scl) const;
     void BuildLightingCB(LightingCBData& out) const;
     void Shoot();
     Frustum BuildFrustum() const;
     void UpdateTitle();
+    void UpdateDynamicObjects(float dt);
+    void RecalcAABB(SceneObject& obj);
 
     std::unique_ptr<RenderingSystem> rs_;
     std::vector<LightData>           lights_;
@@ -109,11 +122,18 @@ private:
     std::vector<uint32_t> queryBuf_;
 
     std::vector<SceneObject> sceneObjects_;
+    std::vector<int>         staticIndices_;
+    std::vector<int>         dynamicIndices_;
     Octree                   octree_;
 
     bool frustumCulling_ = true;
     bool useOctree_      = true;
-    int  visibleCount_   = 0;
+    int  visibleStatic_  = 0;
+    int  visibleDynamic_ = 0;
+
+    int  frameNumber_     = 0;
+    int  octreeRebuilds_  = 0;
+    int  dynamicCullCalls_ = 0;
 
     float time_      = 0.0f;
     float uvOffsetX_ = 0.0f;

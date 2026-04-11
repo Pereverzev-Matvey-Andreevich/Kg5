@@ -62,10 +62,10 @@
     <ClInclude Include="Types.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
-    <ClInclude Include="Game.h">
+    <ClInclude Include="RenderingSystem.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
-    <ClInclude Include="RenderingSystem.h">
+    <ClInclude Include="Game.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
   </ItemGroup>
