@@ -129,7 +129,7 @@ private:
     ComPtr<ID3D12Resource>            textures_[4];
     ComPtr<ID3D12Resource>            textureUploads_[4];
 
-    static const UINT MAX_GEOM_DRAWS = 128;
+    static const UINT MAX_GEOM_DRAWS = 4096;
 
     ComPtr<ID3D12Resource>            geomCB_;
     GeometryCBData*                   geomCBMapped_ = nullptr;

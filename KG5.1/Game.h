@@ -24,10 +24,58 @@ struct TriGrid
     std::vector<std::vector<uint32_t>> cells;
 
     void Build(const std::vector<XMFLOAT3>& soup);
-
     void Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const;
-
     bool Empty() const { return cells.empty(); }
+};
+
+struct AABB
+{
+    XMFLOAT3 min;
+    XMFLOAT3 max;
+};
+
+struct SceneObject
+{
+    XMFLOAT3 position;
+    float    scale;
+    AABB     worldAABB;
+};
+
+struct Plane
+{
+    float a, b, c, d;
+};
+
+struct Frustum
+{
+    Plane planes[6];
+};
+
+struct OctreeNode
+{
+    AABB                             bounds;
+    std::vector<int>                 indices;
+    std::unique_ptr<OctreeNode>      children[8];
+    bool                             isLeaf = true;
+};
+
+class Octree
+{
+public:
+    void Build(const std::vector<SceneObject>& objects, int maxDepth = 7, int maxPerNode = 8);
+    void QueryFrustum(const Frustum& f, std::vector<int>& out) const;
+    bool Empty() const { return !root_; }
+
+private:
+    void BuildRecursive(OctreeNode* node,
+                        const std::vector<SceneObject>& objects,
+                        const std::vector<int>& indices,
+                        int depth, int maxDepth, int maxPerNode);
+    void Subdivide(OctreeNode* node);
+    void QueryNode(const OctreeNode* node, const Frustum& f, std::vector<int>& out) const;
+    static bool AABBInFrustum(const AABB& aabb, const Frustum& f);
+
+    std::unique_ptr<OctreeNode> root_;
 };
 
 class Game
@@ -44,17 +92,13 @@ public:
 private:
     void SetupLights();
 
-    // importance — пресет тесселяции для данного draw call.
-    // TessImportance::High   -> TessMax=32  (детали, колонны Sponza)
-    // TessImportance::Medium -> TessMax=16  (стены, полы)
-    // TessImportance::Low    -> TessMax=4   (потолки, задний план)
-    // TessImportance::None   -> TessMax=1   (снаряды, дебаг-объекты)
     void BuildGeometryCB(GeometryCBData& out,
                          TessImportance importance = TessImportance::Medium) const;
-
     void BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const;
     void BuildLightingCB(LightingCBData& out) const;
     void Shoot();
+    Frustum BuildFrustum() const;
+    void UpdateTitle();
 
     std::unique_ptr<RenderingSystem> rs_;
     std::vector<LightData>           lights_;
@@ -63,6 +107,13 @@ private:
     std::vector<XMFLOAT3> triSoup_;
     TriGrid               collGrid_;
     std::vector<uint32_t> queryBuf_;
+
+    std::vector<SceneObject> sceneObjects_;
+    Octree                   octree_;
+
+    bool frustumCulling_ = true;
+    bool useOctree_      = true;
+    int  visibleCount_   = 0;
 
     float time_      = 0.0f;
     float uvOffsetX_ = 0.0f;
@@ -86,6 +137,8 @@ private:
 
     bool prevSpace_ = false;
     bool prevF1_    = false;
+    bool prevG_     = false;
+    bool prevH_     = false;
     bool wireframe_ = false;
 
     int  width_;

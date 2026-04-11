@@ -3,6 +3,7 @@
 #include "ObjLoader.h"
 #include <cmath>
 #include <algorithm>
+#include <cstdlib>
 
 void TriGrid::Build(const std::vector<XMFLOAT3>& soup)
 {
@@ -95,6 +96,127 @@ void TriGrid::Query(XMFLOAT3 pos, float r, std::vector<uint32_t>& out) const
     }
 }
 
+bool Octree::AABBInFrustum(const AABB& aabb, const Frustum& f)
+{
+    for (int i = 0; i < 6; ++i)
+    {
+        const Plane& p = f.planes[i];
+        float px = (p.a > 0.0f) ? aabb.max.x : aabb.min.x;
+        float py = (p.b > 0.0f) ? aabb.max.y : aabb.min.y;
+        float pz = (p.c > 0.0f) ? aabb.max.z : aabb.min.z;
+        if (p.a * px + p.b * py + p.c * pz + p.d < 0.0f)
+            return false;
+    }
+    return true;
+}
+
+void Octree::Subdivide(OctreeNode* node)
+{
+    XMFLOAT3 mn  = node->bounds.min;
+    XMFLOAT3 mx  = node->bounds.max;
+    XMFLOAT3 mid = { (mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f };
+
+    for (int i = 0; i < 8; ++i)
+    {
+        node->children[i] = std::make_unique<OctreeNode>();
+        node->children[i]->isLeaf  = true;
+        node->children[i]->bounds.min = {
+            (i & 1) ? mid.x : mn.x,
+            (i & 2) ? mid.y : mn.y,
+            (i & 4) ? mid.z : mn.z
+        };
+        node->children[i]->bounds.max = {
+            (i & 1) ? mx.x : mid.x,
+            (i & 2) ? mx.y : mid.y,
+            (i & 4) ? mx.z : mid.z
+        };
+    }
+}
+
+void Octree::BuildRecursive(OctreeNode* node,
+                             const std::vector<SceneObject>& objects,
+                             const std::vector<int>& indices,
+                             int depth, int maxDepth, int maxPerNode)
+{
+    if ((int)indices.size() <= maxPerNode || depth >= maxDepth)
+    {
+        node->indices = indices;
+        node->isLeaf  = true;
+        return;
+    }
+
+    node->isLeaf = false;
+    Subdivide(node);
+
+    XMFLOAT3 mid = {
+        (node->bounds.min.x + node->bounds.max.x) * 0.5f,
+        (node->bounds.min.y + node->bounds.max.y) * 0.5f,
+        (node->bounds.min.z + node->bounds.max.z) * 0.5f
+    };
+
+    std::vector<int> childBuckets[8];
+    for (int idx : indices)
+    {
+        const XMFLOAT3& pos = objects[idx].position;
+        int c = ((pos.x >= mid.x) ? 1 : 0)
+              | ((pos.y >= mid.y) ? 2 : 0)
+              | ((pos.z >= mid.z) ? 4 : 0);
+        childBuckets[c].push_back(idx);
+    }
+
+    for (int i = 0; i < 8; ++i)
+        BuildRecursive(node->children[i].get(), objects, childBuckets[i],
+                       depth + 1, maxDepth, maxPerNode);
+}
+
+void Octree::Build(const std::vector<SceneObject>& objects, int maxDepth, int maxPerNode)
+{
+    root_.reset();
+    if (objects.empty()) return;
+
+    AABB bounds;
+    bounds.min = objects[0].worldAABB.min;
+    bounds.max = objects[0].worldAABB.max;
+    for (const auto& o : objects)
+    {
+        bounds.min.x = fminf(bounds.min.x, o.worldAABB.min.x);
+        bounds.min.y = fminf(bounds.min.y, o.worldAABB.min.y);
+        bounds.min.z = fminf(bounds.min.z, o.worldAABB.min.z);
+        bounds.max.x = fmaxf(bounds.max.x, o.worldAABB.max.x);
+        bounds.max.y = fmaxf(bounds.max.y, o.worldAABB.max.y);
+        bounds.max.z = fmaxf(bounds.max.z, o.worldAABB.max.z);
+    }
+
+    root_ = std::make_unique<OctreeNode>();
+    root_->bounds = bounds;
+    root_->isLeaf = true;
+
+    std::vector<int> allIndices;
+    allIndices.reserve(objects.size());
+    for (int i = 0; i < (int)objects.size(); ++i)
+        allIndices.push_back(i);
+
+    BuildRecursive(root_.get(), objects, allIndices, 0, maxDepth, maxPerNode);
+}
+
+void Octree::QueryNode(const OctreeNode* node, const Frustum& f, std::vector<int>& out) const
+{
+    if (!AABBInFrustum(node->bounds, f)) return;
+
+    for (int idx : node->indices)
+        out.push_back(idx);
+
+    if (!node->isLeaf)
+        for (int i = 0; i < 8; ++i)
+            QueryNode(node->children[i].get(), f, out);
+}
+
+void Octree::QueryFrustum(const Frustum& f, std::vector<int>& out) const
+{
+    if (!root_) return;
+    QueryNode(root_.get(), f, out);
+}
+
 static XMVECTOR ClosestPointOnTriangle(XMVECTOR P,
                                         XMVECTOR A, XMVECTOR B, XMVECTOR C)
 {
@@ -141,6 +263,20 @@ static XMVECTOR ClosestPointOnTriangle(XMVECTOR P,
     float v = vb * denom;
     float w = vc * denom;
     return XMVectorAdd(A, XMVectorAdd(XMVectorScale(AB, v), XMVectorScale(AC, w)));
+}
+
+static bool AABBInFrustumBrute(const AABB& aabb, const Frustum& f)
+{
+    for (int i = 0; i < 6; ++i)
+    {
+        const Plane& p = f.planes[i];
+        float px = (p.a > 0.0f) ? aabb.max.x : aabb.min.x;
+        float py = (p.b > 0.0f) ? aabb.max.y : aabb.min.y;
+        float pz = (p.c > 0.0f) ? aabb.max.z : aabb.min.z;
+        if (p.a * px + p.b * py + p.c * pz + p.d < 0.0f)
+            return false;
+    }
+    return true;
 }
 
 Game::Game(HWND hwnd, int width, int height)
@@ -256,6 +392,30 @@ bool Game::Initialize()
         rs_->LoadTexture(td, 3);
     }
 
+    srand(1337);
+    const int NUM_OBJECTS = 1000;
+    sceneObjects_.reserve(NUM_OBJECTS);
+    for (int i = 0; i < NUM_OBJECTS; ++i)
+    {
+        auto rng = [](float lo, float hi) -> float
+        {
+            return lo + (hi - lo) * ((float)rand() / (float)RAND_MAX);
+        };
+
+        SceneObject obj;
+        obj.position = { rng(-20.0f, 20.0f), rng(0.3f, 14.0f), rng(-7.0f, 7.0f) };
+        obj.scale    = rng(0.2f, 0.6f);
+        obj.worldAABB.min = { obj.position.x - obj.scale,
+                              obj.position.y - obj.scale,
+                              obj.position.z - obj.scale };
+        obj.worldAABB.max = { obj.position.x + obj.scale,
+                              obj.position.y + obj.scale,
+                              obj.position.z + obj.scale };
+        sceneObjects_.push_back(obj);
+    }
+
+    octree_.Build(sceneObjects_);
+
     SetupLights();
     return true;
 }
@@ -311,6 +471,46 @@ void Game::Shoot()
     projectiles_.push_back(p);
 }
 
+void Game::UpdateTitle()
+{
+    wchar_t buf[256];
+    const wchar_t* fc     = frustumCulling_ ? L"ON"  : L"OFF";
+    const wchar_t* octree = useOctree_      ? L"ON"  : L"OFF";
+    int total = (int)sceneObjects_.size();
+    swprintf_s(buf, L"FC:%s  OCTREE:%s  VISIBLE:%d/%d  [G]-toggle FC  [H]-toggle Octree",
+               fc, octree, visibleCount_, total);
+    SetWindowTextW(hwnd_, buf);
+}
+
+Frustum Game::BuildFrustum() const
+{
+    XMVECTOR eye = XMVectorSet(camX_, camY_, camZ_, 1.0f);
+    float cp = cosf(camPitch_);
+    XMVECTOR fwd = XMVectorSet(sinf(camYaw_) * cp, -sinf(camPitch_),
+                               cosf(camYaw_) * cp, 0.0f);
+    XMVECTOR up  = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    XMMATRIX view = XMMatrixLookAtLH(eye, XMVectorAdd(eye, fwd), up);
+
+    float aspect = (rs_->GetHeight() > 0)
+        ? (float)rs_->GetWidth() / (float)rs_->GetHeight() : 1.0f;
+    XMMATRIX proj = XMMatrixPerspectiveFovLH(
+        XMConvertToRadians(60.0f), aspect, nearPlane_, farPlane_);
+
+    XMMATRIX vp = view * proj;
+
+    XMFLOAT4X4 m;
+    XMStoreFloat4x4(&m, vp);
+
+    Frustum f;
+    f.planes[0] = { m._11 + m._14, m._21 + m._24, m._31 + m._34, m._41 + m._44 };
+    f.planes[1] = { m._14 - m._11, m._24 - m._21, m._34 - m._31, m._44 - m._41 };
+    f.planes[2] = { m._12 + m._14, m._22 + m._24, m._32 + m._34, m._42 + m._44 };
+    f.planes[3] = { m._14 - m._12, m._24 - m._22, m._34 - m._32, m._44 - m._42 };
+    f.planes[4] = { m._13,         m._23,         m._33,         m._43         };
+    f.planes[5] = { m._14 - m._13, m._24 - m._23, m._34 - m._33, m._44 - m._43 };
+    return f;
+}
+
 void Game::Update(float deltaTime, InputDevice* input)
 {
     if (deltaTime > 0.033f) deltaTime = 0.033f;
@@ -362,9 +562,18 @@ void Game::Update(float deltaTime, InputDevice* input)
         {
             wireframe_ = !wireframe_;
             rs_->SetWireframe(wireframe_);
-            SetWindowTextW(hwnd_, wireframe_ ? L"DX12 - WIREFRAME ON" : L"DX12 - WIREFRAME OFF");
         }
         prevF1_ = f1Now;
+
+        bool gNow = input->IsKeyDown('G');
+        if (gNow && !prevG_)
+            frustumCulling_ = !frustumCulling_;
+        prevG_ = gNow;
+
+        bool hNow = input->IsKeyDown('H');
+        if (hNow && !prevH_)
+            useOctree_ = !useOctree_;
+        prevH_ = hNow;
     }
 
     const float r       = projectileRadius_;
@@ -435,17 +644,6 @@ void Game::Update(float deltaTime, InputDevice* input)
     }
 }
 
-// -----------------------------------------------------------------------
-// BuildGeometryCB
-//
-// importance задаёт пресет тесселяции для данного draw call:
-//   High   -> TessMax=32  — колонны, арки, видимые детали Sponza
-//   Medium -> TessMax=16  — обычные стены, полы (используется по умолчанию)
-//   Low    -> TessMax=4   — потолки, задний план, малозначимые объекты
-//   None   -> TessMax=1   — тесселяция фактически выключена
-//
-// Диапазон дистанций (2..30) остаётся одинаковым; меняется только потолок.
-// -----------------------------------------------------------------------
 void Game::BuildGeometryCB(GeometryCBData& cb, TessImportance importance) const
 {
     XMMATRIX world = XMMatrixIdentity();
@@ -479,7 +677,6 @@ void Game::BuildGeometryCB(GeometryCBData& cb, TessImportance importance) const
 
 void Game::BuildGeometryCBForSphere(GeometryCBData& out, XMFLOAT3 pos) const
 {
-    // Снаряды — мелкие, тесселяция для них не нужна
     BuildGeometryCB(out, TessImportance::None);
     XMMATRIX world = XMMatrixScaling(projectileRadius_, projectileRadius_, projectileRadius_)
                    * XMMatrixTranslation(pos.x, pos.y, pos.z);
@@ -523,29 +720,51 @@ void Game::Render()
     LightingCBData lightCB;
     BuildLightingCB(lightCB);
 
+    Frustum frustum = BuildFrustum();
+
+    std::vector<int> visibleIndices;
+    visibleIndices.reserve(sceneObjects_.size());
+
+    if (!frustumCulling_)
+    {
+        for (int i = 0; i < (int)sceneObjects_.size(); ++i)
+            visibleIndices.push_back(i);
+    }
+    else if (useOctree_)
+    {
+        octree_.QueryFrustum(frustum, visibleIndices);
+    }
+    else
+    {
+        for (int i = 0; i < (int)sceneObjects_.size(); ++i)
+            if (AABBInFrustumBrute(sceneObjects_[i].worldAABB, frustum))
+                visibleIndices.push_back(i);
+    }
+
+    visibleCount_ = (int)visibleIndices.size();
+    UpdateTitle();
+
     rs_->BeginFrame();
     rs_->BeginGeometryPass();
 
-    // -----------------------------------------------------------------------
-    // Рисуем основную сцену Sponza с High-тесселяцией (TessMax = 32).
-    // Для Sponza это главный объект — колонны, арки и рельефные детали
-    // выиграют от максимальной детализации вблизи камеры.
-    //
-    // Если ты загружаешь несколько мешей раздельно, каждому можно передать
-    // свой пресет. Примеры:
-    //
-    //   BuildGeometryCB(cb, TessImportance::High)   — архитектурные детали
-    //   BuildGeometryCB(cb, TessImportance::Medium) — обычные поверхности
-    //   BuildGeometryCB(cb, TessImportance::Low)    — потолок, фон
-    //   BuildGeometryCB(cb, TessImportance::None)   — плоские/дебаг-объекты
-    // -----------------------------------------------------------------------
     {
         GeometryCBData geomCB;
         BuildGeometryCB(geomCB, TessImportance::High);
         rs_->DrawSceneMeshTess(geomCB);
     }
 
-    // Снаряды рисуются без тесселяции (геометрический PSO, не tessellation)
+    for (int idx : visibleIndices)
+    {
+        const SceneObject& obj = sceneObjects_[idx];
+        GeometryCBData cb;
+        BuildGeometryCB(cb, TessImportance::None);
+        XMMATRIX world = XMMatrixScaling(obj.scale, obj.scale, obj.scale)
+                       * XMMatrixTranslation(obj.position.x, obj.position.y, obj.position.z);
+        cb.World             = XMMatrixTranspose(world);
+        cb.DisplacementScale = 0.0f;
+        rs_->DrawSphere(cb);
+    }
+
     for (auto& p : projectiles_)
     {
         GeometryCBData sphereCB;

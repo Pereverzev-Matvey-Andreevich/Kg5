@@ -18,8 +18,8 @@ cbuffer GeometryCB : register(b0)
     float2   gUVOffset;
     float4   gCameraPos;
     float    gDisplacementScale;
-    float    gTessMin;           // минимальный фактор (на максимальной дистанции)
-    float    gTessMax;           // максимальный фактор (вблизи камеры)
+    float    gTessMin;
+    float    gTessMax;
     float    _Pad0;
     float4   _Pad1;
 };
@@ -127,14 +127,6 @@ struct PatchTess
     float InsideTess  : SV_InsideTessFactor;
 };
 
-// Вычисляет фактор тесселяции для точки мирового пространства.
-// Использует gTessMin / gTessMax из константного буфера, что позволяет
-// Game.cpp задавать разный диапазон для каждого draw call.
-//
-// Дистанции переключения:
-//   < minDist  -> gTessMax  (максимальная детализация, вблизи)
-//   > maxDist  -> gTessMin  (минимальная детализация, вдали)
-//   между ними -> плавная интерполяция
 float ComputeTessFactor(float3 worldPos)
 {
     float dist    = distance(worldPos, gCameraPos.xyz);

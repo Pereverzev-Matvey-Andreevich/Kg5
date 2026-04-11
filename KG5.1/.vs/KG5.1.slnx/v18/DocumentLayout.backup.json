@@ -3,8 +3,7 @@
   "WorkspaceRootPath": "C:\\labkg\\Kg5\\KG5.1\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|C:\\labkg\\Kg5\\KG5.1\\DeferredShaders.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}",
-      "RelativeMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|solutionrelative:DeferredShaders.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\neitw\\Downloads\\Game.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
@@ -64,14 +63,14 @@
             {
               "$type": "Document",
               "DocumentIndex": 0,
-              "Title": "DeferredShaders.hlsl",
-              "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\DeferredShaders.hlsl",
-              "RelativeDocumentMoniker": "DeferredShaders.hlsl",
-              "ToolTip": "C:\\labkg\\Kg5\\KG5.1\\DeferredShaders.hlsl",
-              "RelativeToolTip": "DeferredShaders.hlsl",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAUAAAAAAAAAA==",
+              "Title": "f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
+              "DocumentMoniker": "C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
+              "RelativeDocumentMoniker": "..\\..\\..\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
+              "ToolTip": "C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
+              "RelativeToolTip": "..\\..\\..\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-03-26T10:29:16.889Z",
+              "WhenOpened": "2026-04-07T13:41:17.483Z",
               "EditorCaption": ""
             },
             {
@@ -108,8 +107,7 @@
               "RelativeToolTip": "TextureLoader.cpp",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAEcAAAA0AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
-              "WhenOpened": "2026-03-21T13:54:22.456Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-03-21T13:54:22.456Z"
             },
             {
               "$type": "Document",
