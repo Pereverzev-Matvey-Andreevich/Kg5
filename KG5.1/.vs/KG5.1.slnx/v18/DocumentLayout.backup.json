@@ -3,14 +3,14 @@
   "WorkspaceRootPath": "C:\\labkg\\Kg5\\KG5.1\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}"
+      "AbsoluteMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|C:\\labkg\\Kg5\\KG5.1\\TextureLoader.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|solutionrelative:TextureLoader.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\neitw\\Downloads\\Game.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|C:\\labkg\\Kg5\\KG5.1\\TextureLoader.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
-      "RelativeMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|solutionrelative:TextureLoader.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|C:\\labkg\\Kg5\\KG5.1\\Window.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
@@ -44,7 +44,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 4,
           "Children": [
             {
               "$type": "Document",
@@ -54,7 +54,7 @@
               "RelativeDocumentMoniker": "..\\..\\..\\Users\\neitw\\Downloads\\Game.cpp",
               "ToolTip": "C:\\Users\\neitw\\Downloads\\Game.cpp",
               "RelativeToolTip": "..\\..\\..\\Users\\neitw\\Downloads\\Game.cpp",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAA2AAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAwwBMAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2026-02-21T15:31:36.896Z",
               "IsPinned": true,
@@ -62,7 +62,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
               "DocumentMoniker": "C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
               "RelativeDocumentMoniker": "..\\..\\..\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
@@ -70,8 +70,7 @@
               "RelativeToolTip": "..\\..\\..\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-04-07T13:41:17.483Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-07T13:41:17.483Z"
             },
             {
               "$type": "Document",
@@ -99,7 +98,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 0,
               "Title": "TextureLoader.cpp",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\TextureLoader.cpp",
               "RelativeDocumentMoniker": "TextureLoader.cpp",

@@ -40,6 +40,11 @@
     <ClInclude Include="Window.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="ParticleShaders.hlsl">
+      <FileType>Document</FileType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
     <None Include="DeferredShaders.hlsl">
       <FileType>Document</FileType>
     </None>
@@ -138,7 +143,8 @@
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y "$(ProjectDir)DeferredShaders.hlsl" "$(OutDir)"
-xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"</Command>
+xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"
+xcopy /Y "$(ProjectDir)ParticleShaders.hlsl" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -157,7 +163,8 @@ xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"</Command>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y "$(ProjectDir)DeferredShaders.hlsl" "$(OutDir)"
-xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"</Command>
+xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"
+xcopy /Y "$(ProjectDir)ParticleShaders.hlsl" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

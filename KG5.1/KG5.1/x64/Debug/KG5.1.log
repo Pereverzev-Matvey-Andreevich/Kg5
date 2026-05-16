@@ -1,8 +1,10 @@
 ﻿  Game.cpp
-  main.cpp
+  RenderingSystem.cpp
   Создание кода...
   KG5.1.vcxproj -> C:\labkg\Kg5\KG5.1\x64\Debug\KG5.1.exe
   C:\labkg\Kg5\KG5.1\DeferredShaders.hlsl
   ╤ъюяшЁютрэю Їрщыют: 1.
   ═х эрщфхэ Їрщы: *.png
   ╤ъюяшЁютрэю Їрщыют: 0.
+  C:\labkg\Kg5\KG5.1\ParticleShaders.hlsl
+  ╤ъюяшЁютрэю Їрщыют: 1.
