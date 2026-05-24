@@ -93,8 +93,11 @@ void Game::BuildParticleCB(ParticleCBData& cb, float dt, uint32_t emitCount) con
 
     // Big bright billboards
     cb.CamPosAndSize= { camX_, camY_, camZ_, 1.5f };
-    cb.CamRight     = { iv._11, iv._21, iv._31, 0 };
-    cb.CamUp        = { iv._12, iv._22, iv._32, 0 };
+    // ROW extraction from inverse view matrix:
+    //   Row 0 of inv(View) = world-space Right vector of camera
+    //   Row 1 of inv(View) = world-space Up    vector of camera
+    cb.CamRight     = { iv._11, iv._12, iv._13, 0 };
+    cb.CamUp        = { iv._21, iv._22, iv._23, 0 };
 
     // Pump up brightness — pColor.w multiplies output color in shader
     cb.ParticleColor= { 1.0f, 1.0f, 1.0f, 2.5f };

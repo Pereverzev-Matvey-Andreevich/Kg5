@@ -33,10 +33,10 @@
     <ClCompile Include="GBuffer.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
-    <ClCompile Include="Game.cpp">
+    <ClCompile Include="RenderingSystem.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
-    <ClCompile Include="RenderingSystem.cpp">
+    <ClCompile Include="Game.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
   </ItemGroup>
@@ -70,10 +70,10 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="ParticleShaders.hlsl">
+    <None Include="DeferredShaders.hlsl">
       <Filter>Исходные файлы</Filter>
     </None>
-    <None Include="DeferredShaders.hlsl">
+    <None Include="ParticleShaders.hlsl">
       <Filter>Исходные файлы</Filter>
     </None>
   </ItemGroup>

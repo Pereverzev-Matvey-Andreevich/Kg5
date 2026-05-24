@@ -3,10 +3,6 @@
   "WorkspaceRootPath": "C:\\labkg\\Kg5\\KG5.1\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|C:\\labkg\\Kg5\\KG5.1\\ParticleShaders.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}",
-      "RelativeMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|solutionrelative:ParticleShaders.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|C:\\labkg\\Kg5\\KG5.1\\TextureLoader.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
       "RelativeMoniker": "D:0:0:{8F41B686-3EB9-46A6-AD9A-85981E601A5C}|KG5.1.vcxproj|solutionrelative:TextureLoader.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
     },
@@ -48,37 +44,23 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 4,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 1,
               "Title": "Game.cpp",
               "DocumentMoniker": "C:\\Users\\neitw\\Downloads\\Game.cpp",
               "RelativeDocumentMoniker": "..\\..\\..\\Users\\neitw\\Downloads\\Game.cpp",
               "ToolTip": "C:\\Users\\neitw\\Downloads\\Game.cpp",
               "RelativeToolTip": "..\\..\\..\\Users\\neitw\\Downloads\\Game.cpp",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAwwBMAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2026-02-21T15:31:36.896Z",
               "IsPinned": true
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "ParticleShaders.hlsl",
-              "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\ParticleShaders.hlsl",
-              "RelativeDocumentMoniker": "ParticleShaders.hlsl",
-              "ToolTip": "C:\\labkg\\Kg5\\KG5.1\\ParticleShaders.hlsl*",
-              "RelativeToolTip": "ParticleShaders.hlsl*",
-              "ViewState": "AgIAANUAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-05-16T14:43:23.356Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 2,
               "Title": "f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
               "DocumentMoniker": "C:\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
               "RelativeDocumentMoniker": "..\\..\\..\\Users\\neitw\\Downloads\\f9ccca35-0981-46ca-9879-a298f41719af.hlsl",
@@ -90,7 +72,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 3,
               "Title": "Window.h",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\Window.h",
               "RelativeDocumentMoniker": "Window.h",
@@ -102,7 +84,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 5,
               "Title": "TextureLoader.h",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\TextureLoader.h",
               "RelativeDocumentMoniker": "TextureLoader.h",
@@ -114,7 +96,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "TextureLoader.cpp",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\TextureLoader.cpp",
               "RelativeDocumentMoniker": "TextureLoader.cpp",
@@ -122,12 +104,11 @@
               "RelativeToolTip": "TextureLoader.cpp",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAEcAAAA0AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
-              "WhenOpened": "2026-03-21T13:54:22.456Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-03-21T13:54:22.456Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 6,
               "Title": "ObjLoader.h",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\ObjLoader.h",
               "RelativeDocumentMoniker": "ObjLoader.h",
@@ -139,7 +120,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 7,
               "Title": "ObjLoader.cpp",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\ObjLoader.cpp",
               "RelativeDocumentMoniker": "ObjLoader.cpp",
@@ -151,7 +132,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 8,
               "Title": "main.cpp",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\main.cpp",
               "RelativeDocumentMoniker": "main.cpp",
@@ -163,7 +144,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 4,
               "Title": "Window.cpp",
               "DocumentMoniker": "C:\\labkg\\Kg5\\KG5.1\\Window.cpp",
               "RelativeDocumentMoniker": "Window.cpp",

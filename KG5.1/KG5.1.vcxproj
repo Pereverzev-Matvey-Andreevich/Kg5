@@ -40,12 +40,12 @@
     <ClInclude Include="Window.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="ParticleShaders.hlsl">
+    <None Include="DeferredShaders.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>
   <ItemGroup>
-    <None Include="DeferredShaders.hlsl">
+    <None Include="ParticleShaders.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>

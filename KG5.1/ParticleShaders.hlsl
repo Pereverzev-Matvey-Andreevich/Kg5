@@ -76,9 +76,9 @@ ConsumeStructuredBuffer<GPUParticle> gInputPool   : register(u0);
 AppendStructuredBuffer<GPUParticle>  gOutputPool  : register(u1);
 RWByteAddressBuffer                  gCounter     : register(u2);
 
-
-
-
+// =============================================================================
+// UPDATE — Consume one particle from input, advance physics, Append to output
+// =============================================================================
 [numthreads(256, 1, 1)]
 void ParticleUpdateCS(uint3 dtid : SV_DispatchThreadID)
 {
@@ -160,10 +160,26 @@ GsIn ParticleVS(uint vid : SV_VertexID)
 
     float t = saturate(pt.Age / pt.MaxAge);
 
-    // Acid cyan-blue
-    float3 col = float3(0.0, 0.9, 1.0);
+    // Цвет меняется по времени жизни частицы:
+    //   t=0.0 → белый-жёлтый (рождение, горячий)
+    //   t=0.3 → кислотный голубой (основной цвет фонтана)
+    //   t=0.7 → насыщенный синий (стареет)
+    //   t=1.0 → тёмно-фиолетовый (умирает)
+    float3 colA = float3(1.0, 1.0, 0.4);   // жёлто-белый при рождении
+    float3 colB = float3(0.0, 0.9, 1.0);   // кислотный голубой (основной)
+    float3 colC = float3(0.1, 0.1, 1.0);   // синий в середине
+    float3 colD = float3(0.5, 0.0, 0.8);   // фиолетовый при смерти
 
-    float alpha = smoothstep(0.0, 0.10, t) * (1.0 - smoothstep(0.70, 1.0, t));
+    float3 col;
+    if (t < 0.2)
+        col = lerp(colA, colB, t / 0.2);           // 0→0.2: жёлтый → голубой
+    else if (t < 0.6)
+        col = lerp(colB, colC, (t - 0.2) / 0.4);  // 0.2→0.6: голубой → синий
+    else
+        col = lerp(colC, colD, (t - 0.6) / 0.4);  // 0.6→1.0: синий → фиолетовый
+
+    // Плавное появление (10% жизни) и исчезновение (последние 25%)
+    float alpha = smoothstep(0.0, 0.10, t) * (1.0 - smoothstep(0.75, 1.0, t));
 
     o.PosW  = float4(pt.Position, 1.0);
     o.Color = float4(col * alpha * pColor.w, 0.0);
