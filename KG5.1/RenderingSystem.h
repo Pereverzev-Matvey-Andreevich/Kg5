@@ -52,6 +52,9 @@ public:
     void LoadMeshFromObj(const std::wstring& path);
     void LoadMeshFromBuiltin();
     void LoadTexture(const TextureData& td, int slot);
+    // Загрузить текстуру специально для alpha-test теней.
+    // Альфа-канал текстуры определяет форму тени (прозрачные пиксели = дырки в тени).
+    void LoadShadowAlphaTexture(const TextureData& td);
 
     ID3D12Device* GetDevice()      const { return device_.Get(); }
     UINT          GetFrameIndex()  const { return frameIndex_; }
@@ -76,6 +79,7 @@ private:
     void CreateShadowResources();
     void CreateShadowPipeline();
     void CreateLightingSRVHeap();
+    void InitDefaultShadowAlphaTexture();
     void BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, UINT idxCount);
 
     void WaitForGPU();
@@ -147,6 +151,13 @@ private:
     // SRV heap shared between Lighting & Shadow consumption
     // [0..2] = GBuffer SRVs (copied from gbuffer_), [3] = shadowMap_ SRV
     ComPtr<ID3D12DescriptorHeap> lightingSRVHeap_;
+
+    // Отдельная текстура для alpha-test теней.
+    // Загружается через LoadShadowAlphaTexture().
+    // По умолчанию — белый 1×1 пиксель (ничего не отбрасывается).
+    ComPtr<ID3D12Resource>       shadowAlphaTexture_;
+    ComPtr<ID3D12Resource>       shadowAlphaUpload_;   // временный upload буфер
+    ComPtr<ID3D12DescriptorHeap> shadowAlphaHeap_;     // 1 SRV слот для этой текстуры
 
     // PARTICLES
     ComPtr<ID3D12RootSignature> particleComputeRootSig_;

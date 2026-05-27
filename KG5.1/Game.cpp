@@ -35,6 +35,32 @@ bool Game::Initialize()
     {TextureData td=LoadTextureWIC(dir+L"displacement.png");if(!td.valid)td=LoadTextureWIC(dir+L"displacement.jpg");if(!td.valid){const UINT sz=256;td.width=sz;td.height=sz;td.valid=true;td.pixels.resize(sz*sz*4);for(UINT y=0;y<sz;++y)for(UINT x=0;x<sz;++x){float h=.5f+.5f*sinf((float)x/sz*3.14159f*8)*cosf((float)y/sz*3.14159f*8);UINT i=(y*sz+x)*4;uint8_t v=(uint8_t)(h*255);td.pixels[i]=v;td.pixels[i+1]=v;td.pixels[i+2]=v;td.pixels[i+3]=255;}}rs_->LoadTexture(td,2);}
     {TextureData td=LoadTextureWIC(dir+L"normal.png");if(!td.valid)td=LoadTextureWIC(dir+L"normal.jpg");if(!td.valid){const UINT sz=256;td.width=sz;td.height=sz;td.valid=true;td.pixels.resize(sz*sz*4,0);for(UINT i=0;i<sz*sz;++i){td.pixels[i*4]=128;td.pixels[i*4+1]=128;td.pixels[i*4+2]=255;td.pixels[i*4+3]=255;}}rs_->LoadTexture(td,3);}
 
+    // Шахматная текстура для демонстрации теней с альфа-тестом.
+    // Белые клетки = непрозрачные (alpha 255) → пишутся в shadow map → тень есть.
+    // Чёрные клетки = прозрачные (alpha 0)   → discard в ShadowPS → дырки в тени.
+    {
+        const UINT sz    = 64;   // размер текстуры 64×64
+        const UINT cells = 8;    // количество клеток по одной оси (8×8 = шахматка)
+        TextureData td;
+        td.width  = sz;
+        td.height = sz;
+        td.valid  = true;
+        td.pixels.resize(sz * sz * 4);
+        for (UINT y = 0; y < sz; ++y) {
+            for (UINT x = 0; x < sz; ++x) {
+                UINT  idx    = (y * sz + x) * 4;
+                UINT  cx     = x * cells / sz;   // номер клетки по X
+                UINT  cy     = y * cells / sz;   // номер клетки по Y
+                bool  opaque = (cx + cy) % 2 == 0; // чётная клетка = непрозрачная
+                td.pixels[idx + 0] = 255;               // R
+                td.pixels[idx + 1] = 255;               // G
+                td.pixels[idx + 2] = 255;               // B
+                td.pixels[idx + 3] = opaque ? 255 : 0; // A — непрозрачная или дырка
+            }
+        }
+        rs_->LoadShadowAlphaTexture(td);
+    }
+
     srand(1337);auto rng=[](float lo,float hi)->float{return lo+(hi-lo)*((float)rand()/(float)RAND_MAX);};const float PI=3.14159265f;
     sceneObjects_.reserve(1000);
     for(int i=0;i<950;++i){SceneObject o={};o.position={rng(5,45),rng(.3f,14),rng(-7,7)};o.scale=rng(.2f,.5f);o.isStatic=true;o.basePosition=o.position;RecalcAABB(o);sceneObjects_.push_back(o);}
@@ -217,8 +243,13 @@ void Game::ComputeCascades(CascadeData& out) const
 void Game::BuildShadowCBForScene(ShadowCBData& cb, const XMMATRIX& lightVP) const
 {
     cb = {};
-    cb.World   = XMMatrixTranspose(XMMatrixIdentity());
-    cb.LightVP = XMMatrixTranspose(lightVP);
+    cb.World         = XMMatrixTranspose(XMMatrixIdentity());
+    cb.LightVP       = XMMatrixTranspose(lightVP);
+    // Sponza: включаем alpha test для листвы/заборов/ткани с прозрачностью.
+    // Тайлинг совпадает с geometry pass (4×4 для большинства поверхностей Sponza).
+    cb.UVTiling      = { 4.0f, 4.0f };
+    cb.AlphaCutoff   = 0.5f;   // пиксели с alpha < 0.5 отбрасываются
+    cb.UseAlphaTest  = 1.0f;   // включить
 }
 
 void Game::BuildShadowCBForObject(ShadowCBData& cb, const SceneObject& obj, const XMMATRIX& lightVP) const
@@ -226,16 +257,23 @@ void Game::BuildShadowCBForObject(ShadowCBData& cb, const SceneObject& obj, cons
     cb = {};
     XMMATRIX world = XMMatrixScaling(obj.scale,obj.scale,obj.scale) *
                      XMMatrixTranslation(obj.position.x,obj.position.y,obj.position.z);
-    cb.World   = XMMatrixTranspose(world);
-    cb.LightVP = XMMatrixTranspose(lightVP);
+    cb.World        = XMMatrixTranspose(world);
+    cb.LightVP      = XMMatrixTranspose(lightVP);
+    // Шары — сплошные, alpha test не нужен
+    cb.UVTiling     = { 1.0f, 1.0f };
+    cb.AlphaCutoff  = 0.5f;
+    cb.UseAlphaTest = 0.0f;   // выключить — шары непрозрачные
 }
 
 void Game::BuildShadowCBForSphere(ShadowCBData& cb, XMFLOAT3 p, float s, const XMMATRIX& lightVP) const
 {
     cb = {};
     XMMATRIX world = XMMatrixScaling(s,s,s) * XMMatrixTranslation(p.x,p.y,p.z);
-    cb.World   = XMMatrixTranspose(world);
-    cb.LightVP = XMMatrixTranspose(lightVP);
+    cb.World        = XMMatrixTranspose(world);
+    cb.LightVP      = XMMatrixTranspose(lightVP);
+    cb.UVTiling     = { 1.0f, 1.0f };
+    cb.AlphaCutoff  = 0.5f;
+    cb.UseAlphaTest = 0.0f;   // снаряды непрозрачные
 }
 
 void Game::Render()

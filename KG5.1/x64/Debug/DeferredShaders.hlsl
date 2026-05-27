@@ -15,17 +15,44 @@ PatchTess PatchHS(InputPatch<TessVSOut,3> p,uint pid:SV_PrimitiveID){PatchTess p
 [domain("tri")]GeomPSIn TessDS(PatchTess pt,float3 b:SV_DomainLocation,const OutputPatch<TessVSOut,3> p){float4 posW=b.x*p[0].PosW+b.y*p[1].PosW+b.z*p[2].PosW;float3 n=b.x*p[0].Normal+b.y*p[1].Normal+b.z*p[2].Normal;float2 tc=b.x*p[0].TexCoord+b.y*p[1].TexCoord+b.z*p[2].TexCoord;float2 ruv=b.x*p[0].RawUV+b.y*p[1].RawUV+b.z*p[2].RawUV;float4 col=b.x*p[0].Color+b.y*p[1].Color+b.z*p[2].Color;n=normalize(n);float dist=distance(posW.xyz,gCameraPos.xyz);float mip=clamp(log2(max(1,dist/8)),0,6);float h=gDisplacementMap.SampleLevel(gSampler,tc,mip).r;posW.xyz+=n*(h*gDisplacementScale);GeomPSIn o;o.ClipPos=mul(mul(posW,gView),gProj);o.WorldPos=posW.xyz;o.Normal=n;o.Color=col;o.TexCoord=tc;o.RawUV=ruv;return o;}
 
 // ============================================================================
-// SHADOW PASS — depth-only, one cascade at a time
+// SHADOW PASS — depth + optional alpha test
 // ============================================================================
 cbuffer ShadowCB : register(b0) {
     float4x4 gShadowWorld;
     float4x4 gShadowLightVP;
-    float4   _ShadowPad[8];
+    float2   gShadowUVTiling;    // UV множитель (1,1 для обычных объектов)
+    float    gShadowAlphaCutoff; // порог: пиксели с alpha < cutoff отбрасываются
+    float    gShadowUseAlphaTest;// 1.0 = включить alpha test, 0.0 = пропустить
+    float4   _ShadowPad[7];      // 112 байт паддинга
 };
 
-float4 ShadowVS(GeomVSIn i) : SV_POSITION {
+// Текстура для alpha test (та же что в geometry pass, слот t0)
+Texture2D    gShadowAlbedo  : register(t0);
+SamplerState gShadowAlphaSampler : register(s0);
+
+// VS теперь пробрасывает UV в PS
+struct ShadowVSOut {
+    float4 Clip : SV_POSITION;
+    float2 UV   : TEXCOORD0;
+};
+
+ShadowVSOut ShadowVS(GeomVSIn i) {
+    ShadowVSOut o;
     float4 w = mul(float4(i.Position, 1), gShadowWorld);
-    return mul(w, gShadowLightVP);
+    o.Clip   = mul(w, gShadowLightVP);
+    o.UV     = i.TexCoord;   // передаём UV без тайлинга — тайлинг применяется в PS
+    return o;
+}
+
+// PS делает discard для прозрачных пикселей.
+// Для непрозрачных объектов (UseAlphaTest=0) — PS быстро выходит.
+// depth записывается автоматически GPU для пикселей прошедших discard.
+void ShadowPS(ShadowVSOut i) {
+    if (gShadowUseAlphaTest > 0.5) {
+        float2 uv = i.UV * gShadowUVTiling;
+        float  alpha = gShadowAlbedo.Sample(gShadowAlphaSampler, uv).a;
+        if (alpha < gShadowAlphaCutoff) discard;
+    }
 }
 
 // ============================================================================

@@ -557,17 +557,136 @@ void RenderingSystem::CreateShadowResources()
         auto h=shadowDsvHeap_->GetCPUDescriptorHandleForHeapStart(); h.ptr+=i*shadowDsvDescSize_;
         device_->CreateDepthStencilView(shadowMap_.Get(),&dsvD,h);
     }
+
+    // Отдельный хип на 1 дескриптор — для alpha-test текстуры теней
+    { D3D12_DESCRIPTOR_HEAP_DESC hd={};
+      hd.NumDescriptors=1;
+      hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+      hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+      ThrowIfFailed(device_->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&shadowAlphaHeap_))); }
+
+    // Создаём белый 1×1 пиксель как дефолтную alpha-текстуру.
+    // Белый = alpha 1.0 = ничего не отбрасывается — тени непрозрачные по умолчанию.
+    InitDefaultShadowAlphaTexture();
+}
+
+// Вспомогательная функция: записать текстуру в shadowAlphaTexture_ и создать SRV.
+// Вызывается как из InitDefault... (белый пиксель), так и из LoadShadowAlphaTexture.
+static void UploadShadowAlphaTex(
+    ID3D12Device* dev, ID3D12GraphicsCommandList* cmd,
+    UINT w, UINT h, const uint8_t* rgba,
+    ComPtr<ID3D12Resource>& texOut, ComPtr<ID3D12Resource>& uploadOut,
+    ComPtr<ID3D12DescriptorHeap>& heap)
+{
+    D3D12_HEAP_PROPERTIES hp={}; hp.Type=D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC td={}; td.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    td.Width=w; td.Height=h; td.DepthOrArraySize=1; td.MipLevels=1;
+    td.Format=DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc={1,0};
+
+    texOut.Reset();
+    ThrowIfFailed(dev->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&td,
+        D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&texOut)));
+
+    // Upload буфер
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp={}; UINT64 us=0;
+    dev->GetCopyableFootprints(&td,0,1,0,&fp,nullptr,nullptr,&us);
+
+    D3D12_HEAP_PROPERTIES up={}; up.Type=D3D12_HEAP_TYPE_UPLOAD;
+    D3D12_RESOURCE_DESC bd={}; bd.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;
+    bd.Width=us; bd.Height=1; bd.DepthOrArraySize=1; bd.MipLevels=1;
+    bd.SampleDesc={1,0}; bd.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    uploadOut.Reset();
+    ThrowIfFailed(dev->CreateCommittedResource(&up,D3D12_HEAP_FLAG_NONE,&bd,
+        D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&uploadOut)));
+
+    uint8_t* mapped=nullptr; uploadOut->Map(0,nullptr,(void**)&mapped);
+    for(UINT row=0;row<h;++row)
+        memcpy(mapped+(UINT64)fp.Footprint.RowPitch*row, rgba+(UINT64)w*4*row, (UINT64)w*4);
+    uploadOut->Unmap(0,nullptr);
+
+    D3D12_TEXTURE_COPY_LOCATION src={}; src.pResource=uploadOut.Get();
+    src.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint=fp;
+    D3D12_TEXTURE_COPY_LOCATION dst={}; dst.pResource=texOut.Get();
+    dst.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    cmd->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
+
+    D3D12_RESOURCE_BARRIER b={}; b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.pResource=texOut.Get();
+    b.Transition.StateBefore=D3D12_RESOURCE_STATE_COPY_DEST;
+    b.Transition.StateAfter=D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    b.Transition.Subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    cmd->ResourceBarrier(1,&b);
+
+    // Создаём SRV в слоте 0 нашего хипа
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvD={};
+    srvD.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    srvD.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvD.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvD.Texture2D.MipLevels=1;
+    dev->CreateShaderResourceView(texOut.Get(),&srvD,
+        heap->GetCPUDescriptorHandleForHeapStart());
+}
+
+void RenderingSystem::InitDefaultShadowAlphaTexture()
+{
+    // Белый 1×1 пиксель — alpha=255, никакие пиксели не отбрасываются
+    uint8_t white[4]={255,255,255,255};
+    ThrowIfFailed(commandAllocators_[0]->Reset());
+    ThrowIfFailed(commandList_->Reset(commandAllocators_[0].Get(),nullptr));
+    UploadShadowAlphaTex(device_.Get(),commandList_.Get(),1,1,white,
+        shadowAlphaTexture_,shadowAlphaUpload_,shadowAlphaHeap_);
+    ThrowIfFailed(commandList_->Close());
+    ID3D12CommandList* l[]={commandList_.Get()}; commandQueue_->ExecuteCommandLists(1,l);
+    WaitForGPU();
+    shadowAlphaUpload_.Reset(); // upload буфер больше не нужен
+}
+
+void RenderingSystem::LoadShadowAlphaTexture(const TextureData& td)
+{
+    // Проверка
+    if(!td.valid||td.width==0||td.height==0)
+        ThrowIfFailed(E_INVALIDARG,"LoadShadowAlphaTexture: invalid TextureData");
+    // Загружаем пиксели
+    ThrowIfFailed(commandAllocators_[0]->Reset());
+    ThrowIfFailed(commandList_->Reset(commandAllocators_[0].Get(),nullptr));
+    UploadShadowAlphaTex(device_.Get(),commandList_.Get(),
+        td.width,td.height,td.pixels.data(),
+        shadowAlphaTexture_,shadowAlphaUpload_,shadowAlphaHeap_);
+    ThrowIfFailed(commandList_->Close());
+    ID3D12CommandList* l[]={commandList_.Get()}; commandQueue_->ExecuteCommandLists(1,l);
+    WaitForGPU();
+    shadowAlphaUpload_.Reset();
 }
 
 void RenderingSystem::CreateShadowPipeline()
 {
-    // Root sig: just a CBV at b0
-    D3D12_ROOT_PARAMETER params[1]={};
+    // Root sig: CBV(b0) + SRV table(t0) for alpha-test texture + static sampler(s0)
+    D3D12_DESCRIPTOR_RANGE srvRange={};
+    srvRange.RangeType=D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange.NumDescriptors=1;
+    srvRange.BaseShaderRegister=0;
+
+    D3D12_ROOT_PARAMETER params[2]={};
     params[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[0].Descriptor.ShaderRegister=0;
-    params[0].ShaderVisibility=D3D12_SHADER_VISIBILITY_VERTEX;
+    params[0].ShaderVisibility=D3D12_SHADER_VISIBILITY_ALL;
+    params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[1].DescriptorTable.NumDescriptorRanges=1;
+    params[1].DescriptorTable.pDescriptorRanges=&srvRange;
+    params[1].ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
+
+    // Static sampler s0 for texture sampling in alpha test PS
+    D3D12_STATIC_SAMPLER_DESC sam={};
+    sam.Filter=D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    sam.AddressU=sam.AddressV=sam.AddressW=D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sam.MaxLOD=D3D12_FLOAT32_MAX;
+    sam.ShaderRegister=0;
+    sam.ShaderVisibility=D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC rsD={};
-    rsD.NumParameters=1; rsD.pParameters=params;
+    rsD.NumParameters=2; rsD.pParameters=params;
+    rsD.NumStaticSamplers=1; rsD.pStaticSamplers=&sam;
     rsD.Flags=D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     ComPtr<ID3DBlob> sig,err;
     ThrowIfFailed(D3D12SerializeRootSignature(&rsD,D3D_ROOT_SIGNATURE_VERSION_1,&sig,&err));
@@ -576,6 +695,7 @@ void RenderingSystem::CreateShadowPipeline()
     wchar_t ep[MAX_PATH]={}; GetModuleFileNameW(nullptr,ep,MAX_PATH);
     std::wstring sp(ep); sp=sp.substr(0,sp.find_last_of(L"\\/")+1)+L"DeferredShaders.hlsl";
     auto vs=CompileShader(sp,"ShadowVS","vs_5_0");
+    auto ps=CompileShader(sp,"ShadowPS","ps_5_0");
 
     D3D12_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
@@ -588,25 +708,28 @@ void RenderingSystem::CreateShadowPipeline()
     p.InputLayout={layout,_countof(layout)};
     p.pRootSignature=shadowRootSig_.Get();
     p.VS={vs->GetBufferPointer(),vs->GetBufferSize()};
-    // No PS — depth-only
+    p.PS={ps->GetBufferPointer(),ps->GetBufferSize()};  // PS нужен для alpha test
+
     D3D12_RASTERIZER_DESC rast={};
     rast.FillMode=D3D12_FILL_MODE_SOLID;
-    rast.CullMode=D3D12_CULL_MODE_NONE;       // render both sides — avoids self-shadow holes
+    rast.CullMode=D3D12_CULL_MODE_NONE;
     rast.DepthClipEnable=TRUE;
-    rast.DepthBias=2000;                      // strong constant bias against acne
-    rast.SlopeScaledDepthBias=4.0f;           // strong slope-scale bias
+    rast.DepthBias=2000;
+    rast.SlopeScaledDepthBias=4.0f;
     rast.DepthBiasClamp=0.0f;
     p.RasterizerState=rast;
+
     D3D12_DEPTH_STENCIL_DESC dss={};
     dss.DepthEnable=TRUE;
     dss.DepthWriteMask=D3D12_DEPTH_WRITE_MASK_ALL;
     dss.DepthFunc=D3D12_COMPARISON_FUNC_LESS;
     p.DepthStencilState=dss;
-    D3D12_BLEND_DESC blend={}; // no RTs anyway
+
+    D3D12_BLEND_DESC blend={};
     p.BlendState=blend;
     p.SampleMask=UINT_MAX;
     p.PrimitiveTopologyType=D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    p.NumRenderTargets=0;
+    p.NumRenderTargets=0;   // depth-only output
     p.DSVFormat=DXGI_FORMAT_D32_FLOAT;
     p.SampleDesc={1,0};
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&p,IID_PPV_ARGS(&shadowPSO_)));
@@ -676,6 +799,11 @@ void RenderingSystem::BeginShadowPass(int cascade)
     commandList_->SetGraphicsRootSignature(shadowRootSig_.Get());
     commandList_->SetPipelineState(shadowPSO_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Привязываем ОТДЕЛЬНЫЙ heap с пользовательской alpha-текстурой (или white по умолчанию)
+    ID3D12DescriptorHeap* texHeaps[]={shadowAlphaHeap_.Get()};
+    commandList_->SetDescriptorHeaps(1,texHeaps);
+    commandList_->SetGraphicsRootDescriptorTable(1,shadowAlphaHeap_->GetGPUDescriptorHandleForHeapStart());
 }
 
 void RenderingSystem::BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, UINT idxCount)
@@ -683,7 +811,9 @@ void RenderingSystem::BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUF
     assert(shadowDrawIdx_<MAX_SHADOW_DRAWS);
     UINT64 off=(UINT64)shadowDrawIdx_*sizeof(ShadowCBData);
     memcpy((char*)shadowCBMapped_+off,&cb,sizeof(cb));
+    // Root param 0 = CBV (World + LightVP + alpha test data)
     commandList_->SetGraphicsRootConstantBufferView(0,shadowCB_->GetGPUVirtualAddress()+off);
+    // Root param 1 = SRV table already bound once in BeginShadowPass
     commandList_->IASetVertexBuffers(0,1,&vbv); commandList_->IASetIndexBuffer(&ibv);
     commandList_->DrawIndexedInstanced(idxCount,1,0,0,0); ++shadowDrawIdx_;
 }

@@ -19,11 +19,14 @@ static_assert(sizeof(GeometryCBData)==256,"GeometryCBData must be 256 bytes");
 #define CASCADE_COUNT 4
 #define SHADOW_MAP_SIZE 1024
 
-// Per-draw CB for shadow pass: just World + LightVP
+// Per-draw CB for shadow pass: World + LightVP + alpha-test params
 struct ShadowCBData {
     XMMATRIX World;          // 64
     XMMATRIX LightVP;        // 64
-    float    Pad[32];        // 128 -> total 256
+    XMFLOAT2 UVTiling;       // 8   — UV множитель (для тайлинга текстуры)
+    float    AlphaCutoff;    // 4   — порог прозрачности (обычно 0.5)
+    float    UseAlphaTest;   // 4   — 1=тест включён, 0=объект непрозрачный
+    float    Pad[28];        // 112 -> итого 256
 };
 static_assert(sizeof(ShadowCBData)==256,"ShadowCBData must be 256 bytes");
 
