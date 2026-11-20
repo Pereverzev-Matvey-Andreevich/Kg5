@@ -31,8 +31,8 @@ public:
 
     void BeginFrame();
     void BeginGeometryPass();
-    void DrawSceneMesh(const GeometryCBData& cb);
     void DrawSceneMeshTess(const GeometryCBData& cb);
+    void DrawTerrain(const GeometryCBData& cb, IndexRange indices);
     void DrawSphere(const GeometryCBData& cb);
     void EndGeometryPass();
     void DoLightingPass(const LightingCBData& cb);
@@ -49,8 +49,9 @@ public:
     void EndFrame();
     void SetWireframe(bool on);
 
-    void LoadMeshFromObj(const std::wstring& path);
+    void LoadSceneMesh(const ObjResult& scene);
     void LoadMeshFromBuiltin();
+    void LoadTerrainMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
     void LoadTexture(const TextureData& td, int slot);
     // Загрузить текстуру специально для alpha-test теней.
     // Альфа-канал текстуры определяет форму тени (прозрачные пиксели = дырки в тени).
@@ -80,15 +81,18 @@ private:
     void CreateShadowPipeline();
     void CreateLightingSRVHeap();
     void InitDefaultShadowAlphaTexture();
-    void BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, UINT idxCount);
+    void BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, IndexRange indices);
+    void TransitionShadowForSampling();
 
     void WaitForGPU();
     void MoveToNextFrame();
     void BuildMeshBuffers(const std::vector<Vertex>& verts, const std::vector<UINT>& idxs);
     void MakeUploadBuffer(const void* data, UINT64 byteSize, ComPtr<ID3D12Resource>& buf);
-    void UploadTextureInternal(const TextureData& td, int slot);
+    void UploadTextureInternal(const TextureData& td, UINT slot, bool srgb = false);
+    void WriteTextureView(UINT descriptor, UINT texture, bool srgb = false);
+    D3D12_GPU_DESCRIPTOR_HANDLE TextureGpuHandle(UINT slot) const;
     ComPtr<ID3DBlob> CompileShader(const std::wstring& path, const std::string& entry, const std::string& target);
-    void BindGeomStateAndDraw(const GeometryCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, UINT idxCount);
+    void BindGeomStateAndDraw(const GeometryCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, IndexRange indices);
 
     HWND hwnd_; int width_; int height_;
 
@@ -109,7 +113,7 @@ private:
     GBuffer gbuffer_;
 
     ComPtr<ID3D12RootSignature> geomRootSig_;
-    ComPtr<ID3D12PipelineState> geomPSO_;
+    ComPtr<ID3D12PipelineState> geomPSO_, geomWirePSO_;
     ComPtr<ID3D12PipelineState> tessPSO_, tessPSOWire_;
     bool wireframe_ = false;
 
@@ -120,13 +124,22 @@ private:
     D3D12_VERTEX_BUFFER_VIEW vbView_ = {};
     D3D12_INDEX_BUFFER_VIEW ibView_ = {};
     UINT indexCount_ = 0;
+    struct MaterialDraw { IndexRange indices; UINT descriptor; };
+    std::vector<MaterialDraw> materialDraws_;
+
+    ComPtr<ID3D12Resource> terrainVB_, terrainIB_;
+    D3D12_VERTEX_BUFFER_VIEW terrainVBView_ = {};
+    D3D12_INDEX_BUFFER_VIEW terrainIBView_ = {};
 
     ComPtr<ID3D12Resource> sphereVB_, sphereIB_;
     D3D12_VERTEX_BUFFER_VIEW sphereVBView_ = {};
     D3D12_INDEX_BUFFER_VIEW sphereIBView_ = {};
     UINT sphereIndexCount_ = 0;
 
-    ComPtr<ID3D12Resource> textures_[4], textureUploads_[4];
+    static constexpr UINT TexturesPerMaterial = 4;
+    static constexpr UINT MaxSceneMaterials = 64;
+    static constexpr UINT TextureSlotCount = (MaxSceneMaterials + 1) * TexturesPerMaterial;
+    ComPtr<ID3D12Resource> textures_[TextureSlotCount], textureUploads_[TextureSlotCount];
 
     static const UINT MAX_GEOM_DRAWS = 4096;
     ComPtr<ID3D12Resource> geomCB_;

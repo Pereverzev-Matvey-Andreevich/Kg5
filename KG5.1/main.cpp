@@ -1,8 +1,10 @@
 #include "Window.h"
 #include "Game.h"
 #include <memory>
+#include <exception>
+#include <string_view>
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR arguments, int)
 {
     auto window = std::make_unique<Window>(hInstance, 1280, 720, L"DX12 Deferred Rendering");
     if (!window->Initialize())
@@ -19,8 +21,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         if (game) game->Resize(w, h);
     };
 
-    if (!game->Initialize())
+    try {
+        if (!game->Initialize(std::string_view(arguments) == "--terrain"))
+            return -1;
+    } catch (const std::exception& error) {
+        MessageBoxA(window->GetHWND(), error.what(), "Game initialization failed", MB_OK | MB_ICONERROR);
         return -1;
+    }
 
     return window->Run(
         [&](float dt)

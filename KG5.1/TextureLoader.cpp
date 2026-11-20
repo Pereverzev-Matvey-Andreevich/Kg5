@@ -1,14 +1,23 @@
 #include "TextureLoader.h"
 #include <wrl/client.h>
+#include <limits>
 using Microsoft::WRL::ComPtr;
 
+namespace {
+struct ComApartment {
+    HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    ~ComApartment() { if (SUCCEEDED(result)) CoUninitialize(); }
+};
+}
 
 TextureData LoadTextureWIC(const std::wstring& path)
 {
     TextureData td;
 
     
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const ComApartment apartment;
+    if (FAILED(apartment.result) && apartment.result != RPC_E_CHANGED_MODE)
+        return td;
 
     ComPtr<IWICImagingFactory> factory;
     if (FAILED(CoCreateInstance(
@@ -30,7 +39,8 @@ TextureData LoadTextureWIC(const std::wstring& path)
 
     
     ComPtr<IWICFormatConverter> conv;
-    factory->CreateFormatConverter(&conv);
+    if (FAILED(factory->CreateFormatConverter(&conv)))
+        return td;
     if (FAILED(conv->Initialize(
         frame.Get(),
         GUID_WICPixelFormat32bppRGBA,
@@ -39,15 +49,15 @@ TextureData LoadTextureWIC(const std::wstring& path)
         return td;
 
     UINT w = 0, h = 0;
-    conv->GetSize(&w, &h);
+    if (FAILED(conv->GetSize(&w, &h)) || w == 0 || h == 0 ||
+        w > (std::numeric_limits<UINT>::max)() / 4 / h)
+        return td;
     td.width  = w;
     td.height = h;
     td.pixels.resize(w * h * 4);
 
-    conv->CopyPixels(nullptr, w * 4,
-        static_cast<UINT>(td.pixels.size()), td.pixels.data());
-
-    td.valid = true;
+    td.valid = SUCCEEDED(conv->CopyPixels(nullptr, w * 4,
+        static_cast<UINT>(td.pixels.size()), td.pixels.data()));
     return td;
 }
 

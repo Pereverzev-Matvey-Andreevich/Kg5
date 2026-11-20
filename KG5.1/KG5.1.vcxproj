@@ -25,6 +25,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="ObjLoader.cpp" />
     <ClCompile Include="RenderingSystem.cpp" />
+    <ClCompile Include="Terrain.cpp" />
     <ClCompile Include="TextureLoader.cpp" />
     <ClCompile Include="Window.cpp" />
   </ItemGroup>
@@ -34,6 +35,7 @@
     <ClInclude Include="InputDevice.h" />
     <ClInclude Include="ObjLoader.h" />
     <ClInclude Include="RenderingSystem.h" />
+    <ClInclude Include="Terrain.h" />
     <ClInclude Include="TextureLoader.h" />
     <ClInclude Include="Types.h" />
     <ClInclude Include="Utils.h" />
@@ -101,6 +103,10 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Platform)'=='x64'">
+    <OutDir>$(ProjectDir)x64\Local\$(Configuration)\</OutDir>
+    <IntDir>$(OutDir)obj\</IntDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -141,11 +147,6 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
-    <PostBuildEvent>
-      <Command>xcopy /Y "$(ProjectDir)DeferredShaders.hlsl" "$(OutDir)"
-xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"
-xcopy /Y "$(ProjectDir)ParticleShaders.hlsl" "$(OutDir)"</Command>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -161,13 +162,19 @@ xcopy /Y "$(ProjectDir)ParticleShaders.hlsl" "$(OutDir)"</Command>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
-    <PostBuildEvent>
-      <Command>xcopy /Y "$(ProjectDir)DeferredShaders.hlsl" "$(OutDir)"
-xcopy /Y "$(ProjectDir)*.png" "$(OutDir)"
-xcopy /Y "$(ProjectDir)ParticleShaders.hlsl" "$(OutDir)"</Command>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <Target Name="CopyRuntimeAssets" AfterTargets="Build" Condition="'$(Platform)'=='x64'">
+    <ItemGroup>
+      <RuntimeAsset Include="$(ProjectDir)DeferredShaders.hlsl;$(ProjectDir)ParticleShaders.hlsl" />
+      <RuntimeAsset Include="$(ProjectDir)*.jpg;$(ProjectDir)*.png" />
+      <SceneAsset Include="$(ProjectDir)Assets\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RuntimeAsset)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SceneAsset)"
+          DestinationFiles="@(SceneAsset->'$(OutDir)Assets\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

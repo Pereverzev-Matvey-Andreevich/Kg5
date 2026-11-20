@@ -1,0 +1,123 @@
+# Crytek Sponza materials adapted for KG5.1. See CREDITS.md.
+
+newmtl Material__25
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/lion.png
+norm textures/lion_ddn.png
+
+newmtl Material__298
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/background.png
+norm textures/background_ddn.png
+
+newmtl Material__47
+Kd 0.470400 0.470400 0.470400
+
+newmtl Material__57
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/vase_plant.png
+
+newmtl arch
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_arch_diff.png
+norm textures/sponza_arch_ddn.png
+
+newmtl bricks
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/spnza_bricks_a_diff.png
+norm textures/spnza_bricks_a_ddn.png
+
+newmtl ceiling
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_ceiling_a_diff.png
+norm textures/sponza_ceiling_a_ddn.png
+
+newmtl chain
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/chain_texture.png
+norm textures/chain_texture_ddn.png
+
+newmtl column_a
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_column_a_diff.png
+norm textures/sponza_column_a_ddn.png
+
+newmtl column_b
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_column_b_diff.png
+norm textures/sponza_column_b_ddn.png
+
+newmtl column_c
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_column_c_diff.png
+norm textures/sponza_column_c_ddn.png
+
+newmtl details
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_details_diff.png
+norm textures/sponza_details_ddn.png
+
+newmtl fabric_a
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_fabric_diff.png
+norm textures/sponza_fabric_ddn.png
+
+newmtl fabric_c
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_curtain_diff.png
+norm textures/sponza_curtain_ddn.png
+
+newmtl fabric_d
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_fabric_blue_diff.png
+norm textures/sponza_fabric_ddn.png
+
+newmtl fabric_e
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_fabric_green_diff.png
+norm textures/sponza_fabric_ddn.png
+
+newmtl fabric_f
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_curtain_green_diff.png
+norm textures/sponza_curtain_ddn.png
+
+newmtl fabric_g
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_curtain_blue_diff.png
+norm textures/sponza_curtain_ddn.png
+
+newmtl flagpole
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_flagpole_diff.png
+norm textures/sponza_flagpole_ddn.png
+
+newmtl floor
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_floor_a_diff.png
+norm textures/sponza_floor_a_ddn.png
+
+newmtl leaf
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_thorn_diff.png
+norm textures/sponza_thorn_ddn.png
+
+newmtl roof
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/sponza_roof_diff.png
+norm textures/sponza_roof_ddn.png
+
+newmtl vase
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/vase_dif.png
+norm textures/vase_ddn.png
+
+newmtl vase_hanging
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/vase_hanging.png
+norm textures/vase_hanging_ddn.png
+
+newmtl vase_round
+Kd 0.470400 0.470400 0.470400
+map_Kd textures/vase_round.png
+norm textures/vase_round_ddn.png

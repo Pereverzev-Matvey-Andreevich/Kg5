@@ -2,6 +2,8 @@
 #include "Utils.h"
 #include <cassert>
 #include <cmath>
+#include <algorithm>
+#include <map>
 
 RenderingSystem::RenderingSystem(HWND hwnd, int w, int h) : hwnd_(hwnd), width_(w), height_(h)
 { for (UINT i=0;i<FRAME_COUNT;++i) fenceValues_[i]=0; }
@@ -76,7 +78,7 @@ void RenderingSystem::CreateDescriptorHeaps()
     { D3D12_DESCRIPTOR_HEAP_DESC d={}; d.NumDescriptors=FRAME_COUNT; d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
       ThrowIfFailed(device_->CreateDescriptorHeap(&d,IID_PPV_ARGS(&rtvHeap_)));
       rtvDescSize_=device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV); }
-    { D3D12_DESCRIPTOR_HEAP_DESC d={}; d.NumDescriptors=4; d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    { D3D12_DESCRIPTOR_HEAP_DESC d={}; d.NumDescriptors=TextureSlotCount; d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
       d.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
       ThrowIfFailed(device_->CreateDescriptorHeap(&d,IID_PPV_ARGS(&srvHeap_)));
       srvDescSize_=device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV); }
@@ -140,6 +142,8 @@ void RenderingSystem::CreateGeometryPassPipeline()
     p.RTVFormats[0]=GBuffer::AlbedoFmt; p.RTVFormats[1]=GBuffer::NormalFmt; p.RTVFormats[2]=GBuffer::WorldPosFmt;
     p.DSVFormat=GBuffer::DepthFmt; p.SampleDesc={1,0};
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&p,IID_PPV_ARGS(&geomPSO_)));
+    p.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(device_->CreateGraphicsPipelineState(&p, IID_PPV_ARGS(&geomWirePSO_)));
 }
 
 void RenderingSystem::CreateTessellationPSO()
@@ -213,9 +217,9 @@ void RenderingSystem::CreateConstantBuffers()
         ThrowIfFailed(device_->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&rd,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&res)));
         D3D12_RANGE r={0,0}; ThrowIfFailed(res->Map(0,&r,mapped));
     };
-    makeCB(sizeof(GeometryCBData)*MAX_GEOM_DRAWS, geomCB_, (void**)&geomCBMapped_);
-    makeCB(sizeof(LightingCBData), lightCB_, (void**)&lightCBMapped_);
-    makeCB(sizeof(ShadowCBData)*MAX_SHADOW_DRAWS, shadowCB_, (void**)&shadowCBMapped_);
+    makeCB(sizeof(GeometryCBData)*MAX_GEOM_DRAWS*FRAME_COUNT, geomCB_, (void**)&geomCBMapped_);
+    makeCB(sizeof(LightingCBData)*FRAME_COUNT, lightCB_, (void**)&lightCBMapped_);
+    makeCB(sizeof(ShadowCBData)*MAX_SHADOW_DRAWS*FRAME_COUNT, shadowCB_, (void**)&shadowCBMapped_);
     makeCB(sizeof(ParticleCBData), particleCB_, (void**)&particleCBMapped_);
 }
 
@@ -473,7 +477,71 @@ void RenderingSystem::BuildMeshBuffers(const std::vector<Vertex>& v, const std::
     ibView_={indexBuffer_->GetGPUVirtualAddress(),(UINT)iSz,DXGI_FORMAT_R32_UINT};
 }
 
-void RenderingSystem::LoadMeshFromObj(const std::wstring& path) { ObjResult o=LoadObj(path); if(o.valid)BuildMeshBuffers(o.vertices,o.indices); else LoadMeshFromBuiltin(); }
+void RenderingSystem::LoadSceneMesh(const ObjResult& scene)
+{
+    BuildMeshBuffers(scene.vertices, scene.indices);
+    materialDraws_.clear();
+    const bool textured = std::any_of(scene.batches.begin(), scene.batches.end(),
+        [](const ObjMaterialBatch& batch) { return !batch.albedoPath.empty(); });
+    if (!textured)
+        return;
+    if (scene.batches.size() > MaxSceneMaterials)
+        ThrowIfFailed(E_INVALIDARG, "Too many scene materials");
+
+    ThrowIfFailed(commandAllocators_[0]->Reset());
+    ThrowIfFailed(commandList_->Reset(commandAllocators_[0].Get(), nullptr));
+    std::map<std::pair<std::wstring, bool>, UINT> loaded;
+    const auto load = [&](const std::wstring& path, UINT slot, bool srgb) {
+        if (path.empty())
+            return false;
+        const auto key = std::make_pair(path, srgb);
+        const auto found = loaded.find(key);
+        if (found != loaded.end()) {
+            WriteTextureView(slot, found->second, srgb);
+            return true;
+        }
+        const auto tex = LoadTextureWIC(path);
+        if (!tex.valid)
+            ThrowIfFailed(E_FAIL, "Unable to read a Sponza material texture");
+        UploadTextureInternal(tex, slot, srgb);
+        loaded.emplace(key, slot);
+        return true;
+    };
+
+    for (const auto& batch : scene.batches) {
+        const auto base = static_cast<UINT>(materialDraws_.size() + 1) * TexturesPerMaterial;
+        if (!load(batch.albedoPath, base, true)) {
+            TextureData color;
+            color.width = color.height = 1;
+            color.valid = true;
+            color.pixels = { static_cast<uint8_t>(std::clamp(batch.color.x, 0.0f, 1.0f) * 255),
+                             static_cast<uint8_t>(std::clamp(batch.color.y, 0.0f, 1.0f) * 255),
+                             static_cast<uint8_t>(std::clamp(batch.color.z, 0.0f, 1.0f) * 255), 255 };
+            UploadTextureInternal(color, base);
+        }
+        WriteTextureView(base + 1, 1);
+        WriteTextureView(base + 2, 2);
+        if (!load(batch.normalPath, base + 3, false))
+            WriteTextureView(base + 3, 3);
+        materialDraws_.push_back({ batch.indices, base });
+    }
+    ThrowIfFailed(commandList_->Close());
+    ID3D12CommandList* lists[] = { commandList_.Get() };
+    commandQueue_->ExecuteCommandLists(1, lists);
+    WaitForGPU();
+    for (auto& upload : textureUploads_)
+        upload.Reset();
+}
+
+void RenderingSystem::LoadTerrainMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+{
+    const auto vertexBytes = static_cast<UINT>(vertices.size() * sizeof(Vertex));
+    const auto indexBytes = static_cast<UINT>(indices.size() * sizeof(uint32_t));
+    MakeUploadBuffer(vertices.data(), vertexBytes, terrainVB_);
+    MakeUploadBuffer(indices.data(), indexBytes, terrainIB_);
+    terrainVBView_ = { terrainVB_->GetGPUVirtualAddress(), vertexBytes, sizeof(Vertex) };
+    terrainIBView_ = { terrainIB_->GetGPUVirtualAddress(), indexBytes, DXGI_FORMAT_R32_UINT };
+}
 
 void RenderingSystem::LoadMeshFromBuiltin()
 {
@@ -488,12 +556,32 @@ void RenderingSystem::LoadMeshFromBuiltin()
     BuildMeshBuffers(std::vector<Vertex>(vd,vd+_countof(vd)),idx);
 }
 
-void RenderingSystem::UploadTextureInternal(const TextureData& td, int slot)
+D3D12_GPU_DESCRIPTOR_HANDLE RenderingSystem::TextureGpuHandle(UINT slot) const
+{
+    auto handle = srvHeap_->GetGPUDescriptorHandleForHeapStart();
+    handle.ptr += static_cast<UINT64>(slot) * srvDescSize_;
+    return handle;
+}
+
+void RenderingSystem::WriteTextureView(UINT descriptor, UINT texture, bool srgb)
+{
+    auto handle = srvHeap_->GetCPUDescriptorHandleForHeapStart();
+    handle.ptr += static_cast<SIZE_T>(descriptor) * srvDescSize_;
+    D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+    view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    view.Format = srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
+    view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    view.Texture2D.MipLevels = 1;
+    device_->CreateShaderResourceView(textures_[texture].Get(), &view, handle);
+}
+
+void RenderingSystem::UploadTextureInternal(const TextureData& td, UINT slot, bool srgb)
 {
     if(!td.valid||td.width==0||td.height==0) ThrowIfFailed(E_INVALIDARG,"invalid tex");
     auto& tR=textures_[slot]; auto& uR=textureUploads_[slot];
     D3D12_HEAP_PROPERTIES hp={}; hp.Type=D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC texD={}; texD.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D; texD.Width=td.width; texD.Height=td.height; texD.DepthOrArraySize=1; texD.MipLevels=1; texD.Format=DXGI_FORMAT_R8G8B8A8_UNORM; texD.SampleDesc={1,0};
+    if (srgb) texD.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
     ThrowIfFailed(device_->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&texD,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&tR)));
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp={}; UINT nr=0; UINT64 rs=0,us=0;
     device_->GetCopyableFootprints(&texD,0,1,0,&fp,&nr,&rs,&us);
@@ -507,10 +595,9 @@ void RenderingSystem::UploadTextureInternal(const TextureData& td, int slot)
     D3D12_TEXTURE_COPY_LOCATION dst={}; dst.pResource=tR.Get(); dst.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     commandList_->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
     D3D12_RESOURCE_BARRIER barrier={}; barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; barrier.Transition.pResource=tR.Get(); barrier.Transition.StateBefore=D3D12_RESOURCE_STATE_COPY_DEST; barrier.Transition.StateAfter=D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE; barrier.Transition.Subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    if (slot == 2) barrier.Transition.StateAfter |= D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     commandList_->ResourceBarrier(1,&barrier);
-    auto srvH=srvHeap_->GetCPUDescriptorHandleForHeapStart(); srvH.ptr+=slot*srvDescSize_;
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvD={}; srvD.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; srvD.Format=DXGI_FORMAT_R8G8B8A8_UNORM; srvD.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D; srvD.Texture2D.MipLevels=1;
-    device_->CreateShaderResourceView(tR.Get(),&srvD,srvH);
+    WriteTextureView(slot, slot, srgb);
 }
 
 void RenderingSystem::LoadTexture(const TextureData& td, int slot)
@@ -781,6 +868,7 @@ void RenderingSystem::BeginShadowPass(int cascade)
             b.Transition.StateAfter=D3D12_RESOURCE_STATE_DEPTH_WRITE;
             b.Transition.Subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             commandList_->ResourceBarrier(1,&b);
+            shadowMapInPSR_=false;
         }
         shadowDrawIdx_=0;
     }
@@ -806,26 +894,44 @@ void RenderingSystem::BeginShadowPass(int cascade)
     commandList_->SetGraphicsRootDescriptorTable(1,shadowAlphaHeap_->GetGPUDescriptorHandleForHeapStart());
 }
 
-void RenderingSystem::BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, UINT idxCount)
+void RenderingSystem::BindShadowAndDraw(const ShadowCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, IndexRange indices)
 {
     assert(shadowDrawIdx_<MAX_SHADOW_DRAWS);
-    UINT64 off=(UINT64)shadowDrawIdx_*sizeof(ShadowCBData);
+    UINT64 off=(static_cast<UINT64>(frameIndex_)*MAX_SHADOW_DRAWS+shadowDrawIdx_)*sizeof(ShadowCBData);
     memcpy((char*)shadowCBMapped_+off,&cb,sizeof(cb));
     // Root param 0 = CBV (World + LightVP + alpha test data)
     commandList_->SetGraphicsRootConstantBufferView(0,shadowCB_->GetGPUVirtualAddress()+off);
     // Root param 1 = SRV table already bound once in BeginShadowPass
     commandList_->IASetVertexBuffers(0,1,&vbv); commandList_->IASetIndexBuffer(&ibv);
-    commandList_->DrawIndexedInstanced(idxCount,1,0,0,0); ++shadowDrawIdx_;
+    commandList_->DrawIndexedInstanced(indices.count,1,indices.first,0,0); ++shadowDrawIdx_;
 }
 
 void RenderingSystem::DrawShadowMesh(const ShadowCBData& cb)
-{ BindShadowAndDraw(cb,vbView_,ibView_,indexCount_); }
+{
+    if (materialDraws_.empty()) {
+        BindShadowAndDraw(cb, vbView_, ibView_, { 0, indexCount_ });
+        return;
+    }
+    auto materialCB = cb;
+    materialCB.UVTiling = { 1, 1 };
+    ID3D12DescriptorHeap* sceneHeap[] = { srvHeap_.Get() };
+    commandList_->SetDescriptorHeaps(1, sceneHeap);
+    for (const auto& batch : materialDraws_) {
+        commandList_->SetGraphicsRootDescriptorTable(1, TextureGpuHandle(batch.descriptor));
+        BindShadowAndDraw(materialCB, vbView_, ibView_, batch.indices);
+    }
+    ID3D12DescriptorHeap* defaultHeap[] = { shadowAlphaHeap_.Get() };
+    commandList_->SetDescriptorHeaps(1, defaultHeap);
+    commandList_->SetGraphicsRootDescriptorTable(1, shadowAlphaHeap_->GetGPUDescriptorHandleForHeapStart());
+}
 
 void RenderingSystem::DrawShadowSphere(const ShadowCBData& cb)
-{ BindShadowAndDraw(cb,sphereVBView_,sphereIBView_,sphereIndexCount_); }
+{ BindShadowAndDraw(cb,sphereVBView_,sphereIBView_,{0,sphereIndexCount_}); }
 
-void RenderingSystem::EndShadowPass()
+void RenderingSystem::TransitionShadowForSampling()
 {
+    if (shadowMapInPSR_)
+        return;
     // Transition entire shadow texture to PIXEL_SHADER_RESOURCE for use in lighting pass
     D3D12_RESOURCE_BARRIER b={}; b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     b.Transition.pResource=shadowMap_.Get();
@@ -834,7 +940,11 @@ void RenderingSystem::EndShadowPass()
     b.Transition.Subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList_->ResourceBarrier(1,&b);
     shadowMapInPSR_=true;
+}
 
+void RenderingSystem::EndShadowPass()
+{
+    TransitionShadowForSampling();
     // Restore main viewport for subsequent passes
     D3D12_VIEWPORT vp={}; vp.Width=(float)width_; vp.Height=(float)height_; vp.MaxDepth=1;
     D3D12_RECT sc={0,0,width_,height_};
@@ -866,32 +976,54 @@ void RenderingSystem::BeginGeometryPass()
     commandList_->SetGraphicsRootDescriptorTable(1,srvHeap_->GetGPUDescriptorHandleForHeapStart());
 }
 
-void RenderingSystem::BindGeomStateAndDraw(const GeometryCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, UINT idxCount)
+void RenderingSystem::BindGeomStateAndDraw(const GeometryCBData& cb, D3D12_VERTEX_BUFFER_VIEW vbv, D3D12_INDEX_BUFFER_VIEW ibv, IndexRange indices)
 {
     assert(geomDrawIdx_<MAX_GEOM_DRAWS);
-    UINT64 off=(UINT64)geomDrawIdx_*sizeof(GeometryCBData);
+    UINT64 off=(static_cast<UINT64>(frameIndex_)*MAX_GEOM_DRAWS+geomDrawIdx_)*sizeof(GeometryCBData);
     memcpy((char*)geomCBMapped_+off,&cb,sizeof(cb));
     commandList_->SetGraphicsRootConstantBufferView(0,geomCB_->GetGPUVirtualAddress()+off);
     commandList_->IASetVertexBuffers(0,1,&vbv); commandList_->IASetIndexBuffer(&ibv);
-    commandList_->DrawIndexedInstanced(idxCount,1,0,0,0); ++geomDrawIdx_;
+    commandList_->DrawIndexedInstanced(indices.count,1,indices.first,0,0); ++geomDrawIdx_;
 }
 
-void RenderingSystem::DrawSceneMesh(const GeometryCBData& cb)
-{ commandList_->SetPipelineState(geomPSO_.Get()); commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); BindGeomStateAndDraw(cb,vbView_,ibView_,indexCount_); }
-
 void RenderingSystem::DrawSceneMeshTess(const GeometryCBData& cb)
-{ commandList_->SetPipelineState(wireframe_?tessPSOWire_.Get():tessPSO_.Get()); commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST); BindGeomStateAndDraw(cb,vbView_,ibView_,indexCount_); }
+{
+    commandList_->SetPipelineState(wireframe_ ? tessPSOWire_.Get() : tessPSO_.Get());
+    commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    if (materialDraws_.empty()) {
+        BindGeomStateAndDraw(cb, vbView_, ibView_, { 0, indexCount_ });
+        return;
+    }
+    auto materialCB = cb;
+    materialCB.Material = GeometryMaterial::Sponza;
+    materialCB.Tiling = { 1, 1 };
+    materialCB.UVOffset = {};
+    materialCB.DisplacementScale = 0;
+    for (const auto& batch : materialDraws_) {
+        commandList_->SetGraphicsRootDescriptorTable(1, TextureGpuHandle(batch.descriptor));
+        BindGeomStateAndDraw(materialCB, vbView_, ibView_, batch.indices);
+    }
+    commandList_->SetGraphicsRootDescriptorTable(1, TextureGpuHandle(0));
+}
+
+void RenderingSystem::DrawTerrain(const GeometryCBData& cb, IndexRange indices)
+{
+    commandList_->SetPipelineState(wireframe_ ? geomWirePSO_.Get() : geomPSO_.Get());
+    commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    BindGeomStateAndDraw(cb, terrainVBView_, terrainIBView_, indices);
+}
 
 void RenderingSystem::SetWireframe(bool on){wireframe_=on;}
 
 void RenderingSystem::DrawSphere(const GeometryCBData& cb)
-{ commandList_->SetPipelineState(geomPSO_.Get()); commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); BindGeomStateAndDraw(cb,sphereVBView_,sphereIBView_,sphereIndexCount_); }
+{ commandList_->SetPipelineState(geomPSO_.Get()); commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); BindGeomStateAndDraw(cb,sphereVBView_,sphereIBView_,{0,sphereIndexCount_}); }
 
 void RenderingSystem::EndGeometryPass(){ gbuffer_.TransitionToShaderResource(commandList_.Get()); }
 
 void RenderingSystem::DoLightingPass(const LightingCBData& cb)
 {
-    memcpy(lightCBMapped_,&cb,sizeof(cb));
+    TransitionShadowForSampling();
+    memcpy(lightCBMapped_ + frameIndex_, &cb, sizeof(cb));
     D3D12_RESOURCE_BARRIER bIn={}; bIn.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; bIn.Transition.pResource=renderTargets_[frameIndex_].Get(); bIn.Transition.StateBefore=D3D12_RESOURCE_STATE_PRESENT; bIn.Transition.StateAfter=D3D12_RESOURCE_STATE_RENDER_TARGET; bIn.Transition.Subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList_->ResourceBarrier(1,&bIn);
     auto rtv=rtvHeap_->GetCPUDescriptorHandleForHeapStart(); rtv.ptr+=frameIndex_*rtvDescSize_;
@@ -901,7 +1033,7 @@ void RenderingSystem::DoLightingPass(const LightingCBData& cb)
     // Use combined SRV heap: [0..2]=gbuffer, [3]=shadow array
     ID3D12DescriptorHeap* h[]={lightingSRVHeap_.Get()}; commandList_->SetDescriptorHeaps(1,h);
     commandList_->SetGraphicsRootSignature(lightRootSig_.Get());
-    commandList_->SetGraphicsRootConstantBufferView(0,lightCB_->GetGPUVirtualAddress());
+    commandList_->SetGraphicsRootConstantBufferView(0,lightCB_->GetGPUVirtualAddress() + frameIndex_*sizeof(LightingCBData));
     commandList_->SetGraphicsRootDescriptorTable(1,lightingSRVHeap_->GetGPUDescriptorHandleForHeapStart());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList_->DrawInstanced(3,1,0,0);

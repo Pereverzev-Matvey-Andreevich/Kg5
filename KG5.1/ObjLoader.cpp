@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <charconv>
 
 using namespace DirectX;
 
@@ -11,6 +12,7 @@ struct Material
 {
     XMFLOAT4     diffuse;
     std::wstring texturePath;
+    std::wstring normalPath;
     Material() : diffuse(1.0f, 1.0f, 1.0f, 1.0f) {}
 };
 
@@ -18,23 +20,14 @@ static void ParseFaceVert(const std::string& token,
                            int& p, int& t, int& n)
 {
     p = t = n = 0;
-    std::vector<std::string> parts;
-    std::string cur;
-    for (size_t k = 0; k <= token.size(); ++k)
-    {
-        if (k == token.size() || token[k] == '/')
-        {
-            parts.push_back(cur);
-            cur.clear();
-        }
-        else
-        {
-            cur += token[k];
-        }
+    const char* start = token.data();
+    const char* end = start + token.size();
+    for (int* index : { &p, &t, &n }) {
+        const auto parsed = std::from_chars(start, end, *index);
+        if (parsed.ptr == end || *parsed.ptr != '/')
+            break;
+        start = parsed.ptr + 1;
     }
-    if (parts.size() > 0 && !parts[0].empty()) p = std::stoi(parts[0]);
-    if (parts.size() > 1 && !parts[1].empty()) t = std::stoi(parts[1]);
-    if (parts.size() > 2 && !parts[2].empty()) n = std::stoi(parts[2]);
 }
 
 static std::map<std::string, Material>
@@ -66,10 +59,11 @@ LoadMtl(const std::wstring& mtlPath, const std::wstring& dir)
             float r, g, b; ss >> r >> g >> b;
             cur->diffuse = XMFLOAT4(r, g, b, 1.0f);
         }
-        else if (cur && token == "map_Kd")
+        else if (cur && (token == "map_Kd" || token == "norm"))
         {
             std::string texName; ss >> texName;
-            cur->texturePath = dir + std::wstring(texName.begin(), texName.end());
+            auto& dest = token == "map_Kd" ? cur->texturePath : cur->normalPath;
+            dest = dir + std::wstring(texName.begin(), texName.end());
         }
     }
     return mats;
@@ -92,7 +86,11 @@ ObjResult LoadObj(const std::wstring& path)
     std::vector<XMFLOAT2> texcoords;
 
     std::map<std::string, Material> materials;
-    Material curMat;
+    struct FaceGroup { Material material; std::vector<UINT> indices; };
+    std::vector<FaceGroup> groups(1);
+    std::map<std::string, size_t> groupByMaterial;
+    size_t activeGroup = 0;
+    std::vector<int> pIdx, tIdx, nIdx;
 
     std::string line;
     while (std::getline(f, line))
@@ -132,17 +130,22 @@ ObjResult LoadObj(const std::wstring& path)
         else if (token == "usemtl")
         {
             std::string name; ss >> name;
-            if (materials.count(name))
-            {
-                curMat = materials[name];
-                if (out.texturePath.empty() && !curMat.texturePath.empty())
-                    out.texturePath = curMat.texturePath;
-            }
+            const auto material = materials.find(name);
+            activeGroup = 0;
+            if (material == materials.end())
+                continue;
+            const auto [group, added] = groupByMaterial.try_emplace(name, groups.size());
+            if (added)
+                groups.push_back({ material->second, {} });
+            activeGroup = group->second;
         }
         
         else if (token == "f")
         {
-            std::vector<int> pIdx, tIdx, nIdx;
+            auto& group = groups[activeGroup];
+            pIdx.clear();
+            tIdx.clear();
+            nIdx.clear();
             std::string vert;
             while (ss >> vert)
             {
@@ -170,7 +173,7 @@ ObjResult LoadObj(const std::wstring& path)
                     Vertex v;
                     v.Position = XMFLOAT3(0, 0, 0);
                     v.Normal   = XMFLOAT3(0, 1, 0);
-                    v.Color    = curMat.diffuse;
+                    v.Color    = group.material.diffuse;
                     v.TexCoord = XMFLOAT2(0, 0);
 
                     int pi = pIdx[j];
@@ -182,10 +185,13 @@ ObjResult LoadObj(const std::wstring& path)
                         v.Normal = normals[ni - 1];
 
                     int ti = tIdx[j];
-                    if (ti > 0 && ti <= (int)texcoords.size())
+                    if (ti > 0 && ti <= (int)texcoords.size()) {
                         v.TexCoord = texcoords[ti - 1];
+                        if (!group.material.texturePath.empty())
+                            v.TexCoord.y = 1 - v.TexCoord.y;
+                    }
 
-                    out.indices.push_back((UINT)out.vertices.size());
+                    group.indices.push_back((UINT)out.vertices.size());
                     out.vertices.push_back(v);
                 }
             }
@@ -193,6 +199,16 @@ ObjResult LoadObj(const std::wstring& path)
     }
 
     if (out.vertices.empty()) return out;
+
+    out.indices.reserve(out.vertices.size());
+    for (const auto& group : groups) {
+        if (group.indices.empty())
+            continue;
+        const auto& material = group.material;
+        out.batches.push_back({ { static_cast<UINT>(out.indices.size()), static_cast<UINT>(group.indices.size()) },
+                                material.texturePath, material.normalPath, material.diffuse });
+        out.indices.insert(out.indices.end(), group.indices.begin(), group.indices.end());
+    }
 
     
     if (normals.empty())

@@ -8,32 +8,57 @@
 void TriGrid::Build(const std::vector<XMFLOAT3>& soup){cells.clear();nx=ny=nz=0;if(soup.size()<3)return;float mnx=soup[0].x,mny=soup[0].y,mnz=soup[0].z;float mxx=mnx,mxy=mny,mxz=mnz;for(const auto&v:soup){mnx=fminf(mnx,v.x);mny=fminf(mny,v.y);mnz=fminf(mnz,v.z);mxx=fmaxf(mxx,v.x);mxy=fmaxf(mxy,v.y);mxz=fmaxf(mxz,v.z);}float ext=fmaxf(fmaxf(mxx-mnx,mxy-mny),mxz-mnz);cellSize=fmaxf(1.0f,ext/64.0f);float pad=cellSize;origin={mnx-pad,mny-pad,mnz-pad};nx=(int)ceilf((mxx-mnx+2*pad)/cellSize)+1;ny=(int)ceilf((mxy-mny+2*pad)/cellSize)+1;nz=(int)ceilf((mxz-mnz+2*pad)/cellSize)+1;cells.assign((size_t)nx*ny*nz,{});uint32_t tc=(uint32_t)(soup.size()/3);for(uint32_t i=0;i<tc;++i){const auto&a=soup[i*3],&b=soup[i*3+1],&c=soup[i*3+2];float tmnx=fminf(fminf(a.x,b.x),c.x),tmny=fminf(fminf(a.y,b.y),c.y),tmnz=fminf(fminf(a.z,b.z),c.z);float tmxx=fmaxf(fmaxf(a.x,b.x),c.x),tmxy=fmaxf(fmaxf(a.y,b.y),c.y),tmxz=fmaxf(fmaxf(a.z,b.z),c.z);int x0=(int)((tmnx-origin.x)/cellSize),y0=(int)((tmny-origin.y)/cellSize),z0=(int)((tmnz-origin.z)/cellSize);int x1=(int)((tmxx-origin.x)/cellSize),y1=(int)((tmxy-origin.y)/cellSize),z1=(int)((tmxz-origin.z)/cellSize);x0=max(0,min(x0,nx-1));y0=max(0,min(y0,ny-1));z0=max(0,min(z0,nz-1));x1=max(0,min(x1,nx-1));y1=max(0,min(y1,ny-1));z1=max(0,min(z1,nz-1));for(int iz=z0;iz<=z1;++iz)for(int iy=y0;iy<=y1;++iy)for(int ix=x0;ix<=x1;++ix)cells[(size_t)(iz*ny+iy)*nx+ix].push_back(i);}}
 void TriGrid::Query(XMFLOAT3 pos,float r,std::vector<uint32_t>&out)const{if(cells.empty())return;int x0=(int)((pos.x-r-origin.x)/cellSize),y0=(int)((pos.y-r-origin.y)/cellSize),z0=(int)((pos.z-r-origin.z)/cellSize);int x1=(int)((pos.x+r-origin.x)/cellSize),y1=(int)((pos.y+r-origin.y)/cellSize),z1=(int)((pos.z+r-origin.z)/cellSize);x0=max(0,min(x0,nx-1));y0=max(0,min(y0,ny-1));z0=max(0,min(z0,nz-1));x1=max(0,min(x1,nx-1));y1=max(0,min(y1,ny-1));z1=max(0,min(z1,nz-1));for(int iz=z0;iz<=z1;++iz)for(int iy=y0;iy<=y1;++iy)for(int ix=x0;ix<=x1;++ix)for(uint32_t ti:cells[(size_t)(iz*ny+iy)*nx+ix]){bool d=false;for(uint32_t o:out)if(o==ti){d=true;break;}if(!d)out.push_back(ti);}}
 
-bool Octree::AABBInFrustum(const AABB&a,const Frustum&f){for(int i=0;i<6;++i){const Plane&p=f.planes[i];float px=(p.a>0)?a.max.x:a.min.x,py=(p.b>0)?a.max.y:a.min.y,pz=(p.c>0)?a.max.z:a.min.z;if(p.a*px+p.b*py+p.c*pz+p.d<0)return false;}return true;}
 void Octree::Subdivide(OctreeNode*n){auto mn=n->bounds.min,mx=n->bounds.max;XMFLOAT3 mid={(mn.x+mx.x)*.5f,(mn.y+mx.y)*.5f,(mn.z+mx.z)*.5f};for(int i=0;i<8;++i){n->children[i]=std::make_unique<OctreeNode>();n->children[i]->isLeaf=true;n->children[i]->bounds.min={(i&1)?mid.x:mn.x,(i&2)?mid.y:mn.y,(i&4)?mid.z:mn.z};n->children[i]->bounds.max={(i&1)?mx.x:mid.x,(i&2)?mx.y:mid.y,(i&4)?mx.z:mid.z};}}
 void Octree::BuildRecursive(OctreeNode*n,const std::vector<SceneObject>&o,const std::vector<int>&idx,int d,int mD,int mN){if((int)idx.size()<=mN||d>=mD){n->indices=idx;n->isLeaf=true;return;}n->isLeaf=false;Subdivide(n);XMFLOAT3 mid={(n->bounds.min.x+n->bounds.max.x)*.5f,(n->bounds.min.y+n->bounds.max.y)*.5f,(n->bounds.min.z+n->bounds.max.z)*.5f};std::vector<int>cb[8];for(int i:idx){auto&p=o[i].position;int c=((p.x>=mid.x)?1:0)|((p.y>=mid.y)?2:0)|((p.z>=mid.z)?4:0);cb[c].push_back(i);}for(int i=0;i<8;++i)BuildRecursive(n->children[i].get(),o,cb[i],d+1,mD,mN);}
 void Octree::Build(const std::vector<SceneObject>&o,const std::vector<int>&si,int mD,int mN){root_.reset();if(si.empty())return;AABB b;b.min=o[si[0]].worldAABB.min;b.max=o[si[0]].worldAABB.max;for(int i:si){auto&obj=o[i];b.min.x=fminf(b.min.x,obj.worldAABB.min.x);b.min.y=fminf(b.min.y,obj.worldAABB.min.y);b.min.z=fminf(b.min.z,obj.worldAABB.min.z);b.max.x=fmaxf(b.max.x,obj.worldAABB.max.x);b.max.y=fmaxf(b.max.y,obj.worldAABB.max.y);b.max.z=fmaxf(b.max.z,obj.worldAABB.max.z);}root_=std::make_unique<OctreeNode>();root_->bounds=b;root_->isLeaf=true;BuildRecursive(root_.get(),o,si,0,mD,mN);}
-void Octree::QueryNode(const OctreeNode*n,const Frustum&f,std::vector<int>&out)const{if(!AABBInFrustum(n->bounds,f))return;for(int i:n->indices)out.push_back(i);if(!n->isLeaf)for(int i=0;i<8;++i)QueryNode(n->children[i].get(),f,out);}
+void Octree::QueryNode(const OctreeNode*n,const Frustum&f,std::vector<int>&out)const{if(!IntersectsFrustum(n->bounds,f))return;for(int i:n->indices)out.push_back(i);if(!n->isLeaf)for(int i=0;i<8;++i)QueryNode(n->children[i].get(),f,out);}
 void Octree::QueryFrustum(const Frustum&f,std::vector<int>&out)const{if(root_)QueryNode(root_.get(),f,out);}
 
 static XMVECTOR ClosestPointOnTriangle(XMVECTOR P,XMVECTOR A,XMVECTOR B,XMVECTOR C){XMVECTOR AB=B-A,AC=C-A,AP=P-A;float d1=XMVectorGetX(XMVector3Dot(AB,AP)),d2=XMVectorGetX(XMVector3Dot(AC,AP));if(d1<=0&&d2<=0)return A;XMVECTOR BP=P-B;float d3=XMVectorGetX(XMVector3Dot(AB,BP)),d4=XMVectorGetX(XMVector3Dot(AC,BP));if(d3>=0&&d4<=d3)return B;XMVECTOR CP=P-C;float d5=XMVectorGetX(XMVector3Dot(AB,CP)),d6=XMVectorGetX(XMVector3Dot(AC,CP));if(d6>=0&&d5<=d6)return C;float vc=d1*d4-d3*d2;if(vc<=0&&d1>=0&&d3<=0){float v=d1/(d1-d3);return A+AB*v;}float vb=d5*d2-d1*d6;if(vb<=0&&d2>=0&&d6<=0){float w=d2/(d2-d6);return A+AC*w;}float va=d3*d6-d5*d4;if(va<=0&&(d4-d3)>=0&&(d5-d6)>=0){float w=(d4-d3)/((d4-d3)+(d5-d6));return B+(C-B)*w;}float dn=1.0f/(va+vb+vc);return A+AB*(vb*dn)+AC*(vc*dn);}
-static bool AABBInFrustumBrute(const AABB&a,const Frustum&f){for(int i=0;i<6;++i){const Plane&p=f.planes[i];float px=(p.a>0)?a.max.x:a.min.x,py=(p.b>0)?a.max.y:a.min.y,pz=(p.c>0)?a.max.z:a.min.z;if(p.a*px+p.b*py+p.c*pz+p.d<0)return false;}return true;}
 
 Game::Game(HWND h,int w,int ht):hwnd_(h),width_(w),height_(ht){rs_=std::make_unique<RenderingSystem>(h,w,ht);}
 void Game::RecalcAABB(SceneObject&o){o.worldAABB.min={o.position.x-o.scale,o.position.y-o.scale,o.position.z-o.scale};o.worldAABB.max={o.position.x+o.scale,o.position.y+o.scale,o.position.z+o.scale};}
 
-bool Game::Initialize()
+bool Game::Initialize(bool startOnTerrain)
 {
     if(!rs_->Initialize()) return false;
     wchar_t ep[MAX_PATH]={}; GetModuleFileNameW(nullptr,ep,MAX_PATH);
     std::wstring dir(ep); dir=dir.substr(0,dir.find_last_of(L"\\/")+1);
-    const wchar_t* mc[]={L"sponza.obj",L"Sponza.obj",L"model.obj"};bool ml=false;
-    for(auto*n:mc){std::wstring f=dir+n;if(GetFileAttributesW(f.c_str())!=INVALID_FILE_ATTRIBUTES){rs_->LoadMeshFromObj(f);ObjResult o=LoadObj(f);if(o.valid){triSoup_.reserve(o.indices.size());for(UINT i:o.indices)triSoup_.push_back(o.vertices[i].Position);}ml=true;break;}}
-    if(!ml){rs_->LoadMeshFromBuiltin();float s=.5f;struct F{XMFLOAT3 v[4];};F faces[]={{{{-s,-s,s},{s,-s,s},{s,s,s},{-s,s,s}}},{{{s,-s,-s},{-s,-s,-s},{-s,s,-s},{s,s,-s}}},{{{-s,-s,-s},{-s,-s,s},{-s,s,s},{-s,s,-s}}},{{{s,-s,s},{s,-s,-s},{s,s,-s},{s,s,s}}},{{{-s,s,s},{s,s,s},{s,s,-s},{-s,s,-s}}},{{{-s,-s,-s},{s,-s,-s},{s,-s,s},{-s,-s,s}}}};for(auto&f:faces){triSoup_.push_back(f.v[0]);triSoup_.push_back(f.v[1]);triSoup_.push_back(f.v[2]);triSoup_.push_back(f.v[0]);triSoup_.push_back(f.v[2]);triSoup_.push_back(f.v[3]);}}
-    collGrid_.Build(triSoup_);
     auto lt=[&](const wchar_t*p,const wchar_t*j,int s,UINT sz=256,UINT t=32){TextureData td=LoadTextureWIC(dir+p);if(!td.valid)td=LoadTextureWIC(dir+j);if(!td.valid)td=CreateCheckerboard(sz,t);rs_->LoadTexture(td,s);};
     lt(L"texture1.png",L"texture1.jpg",0);lt(L"texture2.png",L"texture2.jpg",1,256,16);
     {TextureData td=LoadTextureWIC(dir+L"displacement.png");if(!td.valid)td=LoadTextureWIC(dir+L"displacement.jpg");if(!td.valid){const UINT sz=256;td.width=sz;td.height=sz;td.valid=true;td.pixels.resize(sz*sz*4);for(UINT y=0;y<sz;++y)for(UINT x=0;x<sz;++x){float h=.5f+.5f*sinf((float)x/sz*3.14159f*8)*cosf((float)y/sz*3.14159f*8);UINT i=(y*sz+x)*4;uint8_t v=(uint8_t)(h*255);td.pixels[i]=v;td.pixels[i+1]=v;td.pixels[i+2]=v;td.pixels[i+3]=255;}}rs_->LoadTexture(td,2);}
     {TextureData td=LoadTextureWIC(dir+L"normal.png");if(!td.valid)td=LoadTextureWIC(dir+L"normal.jpg");if(!td.valid){const UINT sz=256;td.width=sz;td.height=sz;td.valid=true;td.pixels.resize(sz*sz*4,0);for(UINT i=0;i<sz*sz;++i){td.pixels[i*4]=128;td.pixels[i*4+1]=128;td.pixels[i*4+2]=255;td.pixels[i*4+3]=255;}}rs_->LoadTexture(td,3);}
+
+    {
+        const wchar_t* candidates[] = { L"Assets/Sponza/model.obj", L"sponza.obj", L"model.obj" };
+        for (const auto* candidate : candidates) {
+            const auto scene = LoadObj(dir + candidate);
+            if (!scene.valid)
+                continue;
+            rs_->LoadSceneMesh(scene);
+            triSoup_.reserve(scene.indices.size());
+            for (const auto index : scene.indices)
+                triSoup_.push_back(scene.vertices[index].Position);
+            break;
+        }
+        if (triSoup_.empty()) {
+            rs_->LoadMeshFromBuiltin();
+            const std::array<XMFLOAT3, 8> corners{{
+                {-.5f,-.5f,-.5f}, {.5f,-.5f,-.5f}, {.5f,.5f,-.5f}, {-.5f,.5f,-.5f},
+                {-.5f,-.5f,.5f}, {.5f,-.5f,.5f}, {.5f,.5f,.5f}, {-.5f,.5f,.5f}
+            }};
+            for (const int i : {0,2,1,0,3,2, 4,5,6,4,6,7, 0,4,7,0,7,3,
+                                1,2,6,1,6,5, 3,7,6,3,6,2, 0,1,5,0,5,4})
+                triSoup_.push_back(corners[i]);
+        }
+        collGrid_.Build(triSoup_);
+    }
+    {
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        terrain_.Load(std::filesystem::path(dir) / L"Assets/Terrain", vertices, indices);
+        rs_->LoadTerrainMesh(vertices, indices);
+    }
 
     // Шахматная текстура для демонстрации теней с альфа-тестом.
     // Белые клетки = непрозрачные (alpha 255) → пишутся в shadow map → тень есть.
@@ -67,7 +92,10 @@ bool Game::Initialize()
     for(int i=0;i<50;++i){SceneObject o={};o.basePosition={rng(10,40),rng(2,12),rng(-5,5)};o.position=o.basePosition;o.scale=rng(.8f,1.5f);o.isStatic=false;o.orbitRadius=rng(3,8);o.orbitSpeed=rng(.5f,2);o.orbitPhase=rng(0,2*PI);o.bobSpeed=rng(1,3);o.bobAmplitude=rng(1,3);RecalcAABB(o);sceneObjects_.push_back(o);}
     for(int i=0;i<(int)sceneObjects_.size();++i)(sceneObjects_[i].isStatic?staticIndices_:dynamicIndices_).push_back(i);
     octree_.Build(sceneObjects_,staticIndices_);octreeRebuilds_=1;
-    SetupLights();return true;
+    SetupLights();
+    if (startOnTerrain)
+        ToggleTerrain();
+    return true;
 }
 
 void Game::SetupLights(){lights_.clear();
@@ -80,7 +108,7 @@ void Game::SetupLights(){lights_.clear();
 
 void Game::Shoot(){float cp=cosf(camPitch_);XMFLOAT3 d={sinf(camYaw_)*cp,-sinf(camPitch_),cosf(camYaw_)*cp};Projectile p;p.position={camX_,camY_,camZ_};p.velocity={d.x*projectileSpeed_,d.y*projectileSpeed_,d.z*projectileSpeed_};p.distTraveled=0;p.stuck=false;projectiles_.push_back(p);}
 
-void Game::UpdateTitle(){wchar_t b[512];swprintf_s(b,L"Frame:%d | OctreeBuilds:%d | Static:%d/%d | Dynamic:%d/%d | DynCull:%d | PARTICLES:GPU-TORNADO | [G]FC [H]Octree",frameNumber_,octreeRebuilds_,visibleStatic_,(int)staticIndices_.size(),visibleDynamic_,(int)dynamicIndices_.size(),dynamicCullCalls_);SetWindowTextW(hwnd_,b);}
+void Game::UpdateTitle(){wchar_t b[512];swprintf_s(b,L"Sponza | [T] Terrain | Frame:%d | OctreeBuilds:%d | Static:%d/%d | Dynamic:%d/%d | DynCull:%d | [G] Culling [H] Octree",frameNumber_,octreeRebuilds_,visibleStatic_,(int)staticIndices_.size(),visibleDynamic_,(int)dynamicIndices_.size(),dynamicCullCalls_);SetWindowTextW(hwnd_,b);}
 
 Frustum Game::BuildFrustum()const{XMVECTOR eye=XMVectorSet(camX_,camY_,camZ_,1);float cp=cosf(camPitch_);XMVECTOR fwd=XMVectorSet(sinf(camYaw_)*cp,-sinf(camPitch_),cosf(camYaw_)*cp,0);XMMATRIX view=XMMatrixLookAtLH(eye,eye+fwd,XMVectorSet(0,1,0,0));float asp=(rs_->GetHeight()>0)?(float)rs_->GetWidth()/rs_->GetHeight():1;XMMATRIX proj=XMMatrixPerspectiveFovLH(XMConvertToRadians(60),asp,nearPlane_,farPlane_);XMMATRIX vp=view*proj;XMFLOAT4X4 m;XMStoreFloat4x4(&m,vp);Frustum f;f.planes[0]={m._11+m._14,m._21+m._24,m._31+m._34,m._41+m._44};f.planes[1]={m._14-m._11,m._24-m._21,m._34-m._31,m._44-m._41};f.planes[2]={m._12+m._14,m._22+m._24,m._32+m._34,m._42+m._44};f.planes[3]={m._14-m._12,m._24-m._22,m._34-m._32,m._44-m._42};f.planes[4]={m._13,m._23,m._33,m._43};f.planes[5]={m._14-m._13,m._24-m._23,m._34-m._33,m._44-m._43};return f;}
 
@@ -134,16 +162,26 @@ void Game::Update(float dt, InputDevice* input)
     if(dt>.033f)dt=.033f; time_+=dt;
     uvOffsetX_+=.03f*dt;uvOffsetY_+=.01f*dt;if(uvOffsetX_>1)uvOffsetX_-=1;if(uvOffsetY_>1)uvOffsetY_-=1;
     if(input){
+        const bool t = input->IsKeyDown('T');
+        if (t && !prevT_)
+            ToggleTerrain();
+        prevT_ = t;
+        const bool l = input->IsKeyDown('L');
+        if (l && !prevL_ && terrainMode_)
+            tintTerrainLods_ = !tintTerrainLods_;
+        prevL_ = l;
         if(input->IsMouseDown(1)){camYaw_+=input->GetMouseDeltaX()*mouseSensitivity_;camPitch_+=input->GetMouseDeltaY()*mouseSensitivity_;float lim=XMConvertToRadians(89);camPitch_=max(-lim,min(camPitch_,lim));}
         float cp=cosf(camPitch_);float fx=sinf(camYaw_)*cp,fy=-sinf(camPitch_),fz=cosf(camYaw_)*cp;float rx=cosf(camYaw_),rz=-sinf(camYaw_);float spd=moveSpeed_*dt;if(input->IsKeyDown(VK_SHIFT))spd*=3;
         if(input->IsKeyDown('W')){camX_+=fx*spd;camY_+=fy*spd;camZ_+=fz*spd;}if(input->IsKeyDown('S')){camX_-=fx*spd;camY_-=fy*spd;camZ_-=fz*spd;}
         if(input->IsKeyDown('D')){camX_+=rx*spd;camZ_+=rz*spd;}if(input->IsKeyDown('A')){camX_-=rx*spd;camZ_-=rz*spd;}
         if(input->IsKeyDown('E'))camY_+=spd;if(input->IsKeyDown('Q'))camY_-=spd;
-        bool sp=input->IsKeyDown(VK_SPACE);if(sp&&!prevSpace_)Shoot();prevSpace_=sp;
+        bool sp=input->IsKeyDown(VK_SPACE);if(sp&&!prevSpace_&&!terrainMode_)Shoot();prevSpace_=sp;
         bool f1=input->IsKeyDown('F');if(f1&&!prevF1_){wireframe_=!wireframe_;rs_->SetWireframe(wireframe_);}prevF1_=f1;
         bool g=input->IsKeyDown('G');if(g&&!prevG_)frustumCulling_=!frustumCulling_;prevG_=g;
         bool h=input->IsKeyDown('H');if(h&&!prevH_)useOctree_=!useOctree_;prevH_=h;
     }
+    if (terrainMode_)
+        return;
     UpdateDynamicObjects(dt);
     const float r=projectileRadius_,r2=r*r,sub=r*.5f;
     for(auto&p:projectiles_){if(p.stuck)continue;float md=projectileSpeed_*dt;p.distTraveled+=md;if(p.distTraveled>=projectileMaxDist_){p.stuck=true;continue;}float is=1.0f/projectileSpeed_;XMFLOAT3 df={p.velocity.x*is,p.velocity.y*is,p.velocity.z*is};XMVECTOR dir=XMLoadFloat3(&df);float rem=md;while(rem>0){float step=min(rem,sub);rem-=step;XMVECTOR pos=XMLoadFloat3(&p.position);pos+=dir*step;XMStoreFloat3(&p.position,pos);if(collGrid_.Empty())continue;queryBuf_.clear();collGrid_.Query(p.position,r,queryBuf_);bool hit=false;for(uint32_t ti:queryBuf_){XMVECTOR A=XMLoadFloat3(&triSoup_[ti*3]),B=XMLoadFloat3(&triSoup_[ti*3+1]),C=XMLoadFloat3(&triSoup_[ti*3+2]);XMVECTOR cl=ClosestPointOnTriangle(pos,A,B,C),diff=pos-cl;float d2=XMVectorGetX(XMVector3Dot(diff,diff));if(d2<=r2){if(d2>1e-8f){float d=sqrtf(d2);pos=cl+diff*(r/d);XMStoreFloat3(&p.position,pos);}p.stuck=true;hit=true;break;}}if(hit)break;}}
@@ -245,8 +283,7 @@ void Game::BuildShadowCBForScene(ShadowCBData& cb, const XMMATRIX& lightVP) cons
     cb = {};
     cb.World         = XMMatrixTranspose(XMMatrixIdentity());
     cb.LightVP       = XMMatrixTranspose(lightVP);
-    // Sponza: включаем alpha test для листвы/заборов/ткани с прозрачностью.
-    // Тайлинг совпадает с geometry pass (4×4 для большинства поверхностей Sponza).
+    // The renderer uses the material's UVs for Sponza and this tiling for the fallback.
     cb.UVTiling      = { 4.0f, 4.0f };
     cb.AlphaCutoff   = 0.5f;   // пиксели с alpha < 0.5 отбрасываются
     cb.UseAlphaTest  = 1.0f;   // включить
@@ -279,6 +316,10 @@ void Game::BuildShadowCBForSphere(ShadowCBData& cb, XMFLOAT3 p, float s, const X
 void Game::Render()
 {
     ++frameNumber_;
+    if (terrainMode_) {
+        RenderTerrain();
+        return;
+    }
     LightingCBData lCB; BuildLightingCB(lCB);
 
     // Compute cascades + fill shadow-related fields in lighting CB
@@ -290,8 +331,8 @@ void Game::Render()
     Frustum frustum=BuildFrustum();
     std::vector<int>visStat,visDyn;visStat.reserve(staticIndices_.size());visDyn.reserve(dynamicIndices_.size());
     if(!frustumCulling_){visStat=staticIndices_;visDyn=dynamicIndices_;}else{
-        if(useOctree_)octree_.QueryFrustum(frustum,visStat);else for(int i:staticIndices_)if(AABBInFrustumBrute(sceneObjects_[i].worldAABB,frustum))visStat.push_back(i);
-        for(int i:dynamicIndices_)if(AABBInFrustumBrute(sceneObjects_[i].worldAABB,frustum))visDyn.push_back(i);++dynamicCullCalls_;}
+        if(useOctree_)octree_.QueryFrustum(frustum,visStat);else for(int i:staticIndices_)if(IntersectsFrustum(sceneObjects_[i].worldAABB,frustum))visStat.push_back(i);
+        for(int i:dynamicIndices_)if(IntersectsFrustum(sceneObjects_[i].worldAABB,frustum))visDyn.push_back(i);++dynamicCullCalls_;}
     visibleStatic_=(int)visStat.size();visibleDynamic_=(int)visDyn.size();UpdateTitle();
 
     rs_->BeginFrame();
@@ -321,12 +362,12 @@ void Game::Render()
         for(int c = 0; c < CASCADE_COUNT; ++c){
             rs_->BeginShadowPass(c);
 
-            // Sponza always — single big static caster
+            // Sponza is a static caster in every cascade.
             { ShadowCBData scb; BuildShadowCBForScene(scb, cascades.lightVP[c]); rs_->DrawShadowMesh(scb); }
 
             // Outermost cascade: skip ALL sphere objects entirely.
             // Their shadows would be ~1 texel and barely visible from such a wide cascade.
-            if(c == CASCADE_COUNT - 1){ rs_->EndShadowPass(); continue; }
+            if(c == CASCADE_COUNT - 1) continue;
 
             const float effR = cEffRadius[c];
             const XMFLOAT3 ec = cExtCenter[c];
@@ -355,8 +396,8 @@ void Game::Render()
                 rs_->DrawShadowSphere(scb);
             }
 
-            rs_->EndShadowPass();
         }
+        rs_->EndShadowPass();
     }
 
     rs_->BeginGeometryPass();
@@ -374,3 +415,53 @@ void Game::Render()
 }
 
 void Game::Resize(int w,int h){width_=w;height_=h;rs_->Resize(w,h);}
+
+void Game::ToggleTerrain()
+{
+    terrainMode_ = !terrainMode_;
+    std::swap(camX_, otherCameraPosition_.x);
+    std::swap(camY_, otherCameraPosition_.y);
+    std::swap(camZ_, otherCameraPosition_.z);
+    std::swap(camYaw_, otherCameraAngles_.x);
+    std::swap(camPitch_, otherCameraAngles_.y);
+}
+
+void Game::RenderTerrain()
+{
+    const XMFLOAT3 camera{ camX_, camY_, camZ_ };
+    const auto frustum = BuildFrustum();
+    terrain_.Select(camera, frustumCulling_ ? &frustum : nullptr, terrainSelection_);
+
+    const auto& levels = terrainSelection_.drawn;
+    wchar_t title[256];
+    swprintf_s(title, L"Terrain | Tris:%u | LOD 0:%d 1:%d 2:%d 3:%d | Culled:%d | [T] Sponza [G] Culling:%ls [L] LOD colors [F] Wireframe",
+               terrainSelection_.triangles, levels[0], levels[1], levels[2], levels[3], terrainSelection_.culled,
+               frustumCulling_ ? L"on" : L"off");
+    SetWindowTextW(hwnd_, title);
+
+    GeometryCBData meshCB;
+    BuildGeometryCB(meshCB, TessImportance::None);
+    meshCB.Material = GeometryMaterial::Terrain;
+    const XMFLOAT4 lodColors[] = {
+        { .12f, .57f, .25f, .72f }, { .12f, .40f, .75f, .72f },
+        { .77f, .48f, .10f, .72f }, { .68f, .15f, .18f, .72f }
+    };
+    LightingCBData lighting{};
+    lighting.CameraPos = { camX_, camY_, camZ_, 1 };
+    lighting.LightCount = 1;
+    auto& sun = lighting.Lights[0];
+    sun.Type = static_cast<int>(LightType::Directional);
+    sun.Direction = { .67f, -.49f, .28f, 0 };
+    sun.Color = { 1.0f, .94f, .81f, 1.7f };
+
+    rs_->BeginFrame();
+    rs_->BeginGeometryPass();
+    for (const auto& patch : terrainSelection_.patches) {
+        if (tintTerrainLods_)
+            meshCB.Tint = lodColors[patch.lod];
+        rs_->DrawTerrain(meshCB, patch.indices);
+    }
+    rs_->EndGeometryPass();
+    rs_->DoLightingPass(lighting);
+    rs_->EndFrame();
+}

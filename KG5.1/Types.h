@@ -1,9 +1,26 @@
 #pragma once
 #include <DirectXMath.h>
+#include <cstdint>
 using namespace DirectX;
 
 struct Vertex { XMFLOAT3 Position; XMFLOAT3 Normal; XMFLOAT4 Color; XMFLOAT2 TexCoord; };
 struct QuadVertex { XMFLOAT2 Position; XMFLOAT2 TexCoord; };
+struct AABB { XMFLOAT3 min; XMFLOAT3 max; };
+struct Plane { float a, b, c, d; };
+struct Frustum { Plane planes[6]; };
+struct IndexRange { uint32_t first; uint32_t count; };
+
+inline bool IntersectsFrustum(const AABB& bounds, const Frustum& frustum)
+{
+    for (const auto& p : frustum.planes) {
+        const float x = p.a > 0 ? bounds.max.x : bounds.min.x;
+        const float y = p.b > 0 ? bounds.max.y : bounds.min.y;
+        const float z = p.c > 0 ? bounds.max.z : bounds.min.z;
+        if (p.a * x + p.b * y + p.c * z + p.d < 0)
+            return false;
+    }
+    return true;
+}
 enum class LightType : int { Point=0, Directional=1, Spot=2 };
 struct LightData { XMFLOAT4 Position; XMFLOAT4 Direction; XMFLOAT4 Color; int Type; float Range; float InnerConeAngle; float OuterConeAngle; };
 #define MAX_LIGHTS 64
@@ -12,7 +29,8 @@ inline void TessImportanceToRange(TessImportance imp, float& outMin, float& outM
     switch(imp){ case TessImportance::High:outMin=1;outMax=32;break; case TessImportance::Medium:outMin=1;outMax=16;break; case TessImportance::Low:outMin=1;outMax=4;break; default:outMin=1;outMax=1;break; }
 }
 
-struct GeometryCBData { XMMATRIX World; XMMATRIX View; XMMATRIX Proj; XMFLOAT2 Tiling; XMFLOAT2 UVOffset; XMFLOAT4 CameraPos; float DisplacementScale; float TessMin; float TessMax; float Pad[5]; };
+enum class GeometryMaterial : uint32_t { Default, Sponza, Terrain };
+struct GeometryCBData { XMMATRIX World; XMMATRIX View; XMMATRIX Proj; XMFLOAT2 Tiling; XMFLOAT2 UVOffset; XMFLOAT4 CameraPos; float DisplacementScale; float TessMin; float TessMax; GeometryMaterial Material; XMFLOAT4 Tint; };
 static_assert(sizeof(GeometryCBData)==256,"GeometryCBData must be 256 bytes");
 
 // ---------------- Shadows / Cascaded Shadow Maps ----------------

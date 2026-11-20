@@ -1,11 +1,52 @@
 struct LightData{float4 Position;float4 Direction;float4 Color;int Type;float Range;float InnerConeAngle;float OuterConeAngle;};
-cbuffer GeometryCB:register(b0){float4x4 gWorld;float4x4 gView;float4x4 gProj;float2 gTiling;float2 gUVOffset;float4 gCameraPos;float gDisplacementScale;float gTessMin;float gTessMax;float _Pad0;float4 _Pad1;};
+cbuffer GeometryCB:register(b0){float4x4 gWorld;float4x4 gView;float4x4 gProj;float2 gTiling;float2 gUVOffset;float4 gCameraPos;float gDisplacementScale;float gTessMin;float gTessMax;uint gMaterial;float4 gTint;};
+static const uint SPONZA_MATERIAL = 1;
+static const uint TERRAIN_MATERIAL = 2;
 Texture2D gTexture:register(t0);Texture2D gTexture2:register(t1);Texture2D gDisplacementMap:register(t2);Texture2D gNormalMap:register(t3);SamplerState gSampler:register(s0);
 struct GeomVSIn{float3 Position:POSITION;float3 Normal:NORMAL;float4 Color:COLOR;float2 TexCoord:TEXCOORD;};
 struct GeomPSIn{float4 ClipPos:SV_POSITION;float3 WorldPos:TEXCOORD0;float3 Normal:TEXCOORD1;float4 Color:COLOR;float2 TexCoord:TEXCOORD2;float2 RawUV:TEXCOORD3;};
 struct GeomPSOut{float4 Albedo:SV_TARGET0;float4 Normal:SV_TARGET1;float4 WorldPos:SV_TARGET2;};
 GeomPSIn GeometryVS(GeomVSIn i){GeomPSIn o;float4 w=mul(float4(i.Position,1),gWorld);o.ClipPos=mul(mul(w,gView),gProj);o.WorldPos=w.xyz;o.Normal=normalize(mul(float4(i.Normal,0),gWorld).xyz);o.Color=i.Color;o.TexCoord=i.TexCoord*gTiling+gUVOffset;o.RawUV=i.TexCoord;return o;}
-GeomPSOut GeometryPS(GeomPSIn i){float4 tc=gTexture.Sample(gSampler,i.TexCoord);float3 N=normalize(i.Normal);float3 dp1=ddx(i.WorldPos);float3 dp2=ddy(i.WorldPos);float2 duv1=ddx(i.TexCoord);float2 duv2=ddy(i.TexCoord);float3 dp2p=cross(dp2,N);float3 dp1p=cross(N,dp1);float3 T=dp2p*duv1.x+dp1p*duv2.x;float3 B=dp2p*duv1.y+dp1p*duv2.y;float inv=rsqrt(max(dot(T,T),dot(B,B))+1e-8f);float3x3 TBN=float3x3(T*inv,B*inv,N);float3 nTS=gNormalMap.Sample(gSampler,i.TexCoord).xyz*2-1;N=normalize(mul(nTS,TBN));GeomPSOut o;o.Albedo=float4(tc.rgb,1);o.Normal=float4(N*.5+.5,1);o.WorldPos=float4(i.WorldPos,1);return o;}
+GeomPSOut GeometryPS(GeomPSIn i)
+{
+    float3 N = normalize(i.Normal);
+    float3 albedo;
+    if (gMaterial == TERRAIN_MATERIAL) {
+        float2 pos = i.WorldPos.xz;
+        float detail = sin(pos.x * 0.57 + pos.y * 0.31) * cos(pos.y * 0.72)
+                     + sin(pos.x * 1.34 - pos.y * 1.11) * 0.35;
+        float strata = sin(i.WorldPos.y * 0.62 + pos.x * 0.025 + pos.y * 0.032);
+        float steep = smoothstep(0.12, 0.42, 1 - N.y);
+        albedo = lerp(i.Color.rgb * (1 + 0.08 * detail + 0.13 * steep * strata), gTint.rgb, gTint.a);
+        if (gTint.a > 0) {
+            float2 edge = min(i.RawUV, 1 - i.RawUV);
+            float2 pixels = edge / max(fwidth(i.RawUV), 0.0001);
+            float interior = smoothstep(0, 1.7, min(pixels.x, pixels.y));
+            albedo *= lerp(0.17, 1, interior);
+        }
+    } else {
+        float4 texel = gTexture.Sample(gSampler, i.TexCoord);
+        if (gMaterial == SPONZA_MATERIAL)
+            clip(texel.a - 0.5);
+        albedo = texel.rgb;
+        float3 dp1 = ddx(i.WorldPos);
+        float3 dp2 = ddy(i.WorldPos);
+        float2 duv1 = ddx(i.TexCoord);
+        float2 duv2 = ddy(i.TexCoord);
+        float3 dp2p = cross(dp2, N);
+        float3 dp1p = cross(N, dp1);
+        float3 T = dp2p * duv1.x + dp1p * duv2.x;
+        float3 B = dp2p * duv1.y + dp1p * duv2.y;
+        float inv = rsqrt(max(dot(T, T), dot(B, B)) + 1e-8f);
+        float3 nTS = gNormalMap.Sample(gSampler, i.TexCoord).xyz * 2 - 1;
+        N = normalize(mul(nTS, float3x3(T * inv, B * inv, N)));
+    }
+    GeomPSOut o;
+    o.Albedo = float4(albedo, 1);
+    o.Normal = float4(N * 0.5 + 0.5, 1);
+    o.WorldPos = float4(i.WorldPos, 1);
+    return o;
+}
 struct TessVSOut{float4 PosW:SV_POSITION;float3 Normal:TEXCOORD1;float4 Color:COLOR;float2 TexCoord:TEXCOORD2;float2 RawUV:TEXCOORD3;};
 TessVSOut TessVS(GeomVSIn i){TessVSOut o;float4 w=mul(float4(i.Position,1),gWorld);o.PosW=w;o.Normal=normalize(mul(float4(i.Normal,0),gWorld).xyz);o.Color=i.Color;o.TexCoord=i.TexCoord*gTiling+gUVOffset;o.RawUV=i.TexCoord;return o;}
 struct PatchTess{float EdgeTess[3]:SV_TessFactor;float InsideTess:SV_InsideTessFactor;};
@@ -146,7 +187,9 @@ float4 LightingPS(float4 pos:SV_POSITION, float2 uv:TEXCOORD0) : SV_TARGET {
     float4 n4 = gNormal.Sample(gSamplerL, uv);
     float4 w4 = gWorldPos.Sample(gSamplerL, uv);
 
-    if (w4.w < .01) return float4(.05, .08, .15, 1);
+    float3 terrainSky = lerp(float3(.73, .82, .87), float3(.30, .54, .77), saturate(1 - uv.y));
+    if (w4.w < .01)
+        return float4(gCascadeCount == 0 ? terrainSky : float3(.05, .08, .15), 1);
     if (a4.a < .5)  { float3 e = a4.rgb * 3; e = e/(e+1); e = pow(abs(e), 1/2.2); return float4(e, 1); }
 
     float3 alb = a4.rgb;
@@ -155,9 +198,12 @@ float4 LightingPS(float4 pos:SV_POSITION, float2 uv:TEXCOORD0) : SV_TARGET {
     float3 V   = normalize(gCameraPos_L.xyz - wp);
 
     // Shadow factor for the directional light (computed once per pixel)
-    int   cascade = SelectCascade(wp);
-    float NdotL   = max(dot(N, normalize(-gLightDir.xyz)), 0.0);
-    float shadow  = SampleShadowPCF(wp, cascade, NdotL);
+    float shadow = 1;
+    if (gCascadeCount > 0) {
+        int cascade = SelectCascade(wp);
+        float NdotL = max(dot(N, normalize(-gLightDir.xyz)), 0.0);
+        shadow = SampleShadowPCF(wp, cascade, NdotL);
+    }
 
     float3 col = alb * .08;
     int cnt = clamp(gLightCount, 0, 64);
@@ -170,5 +216,9 @@ float4 LightingPS(float4 pos:SV_POSITION, float2 uv:TEXCOORD0) : SV_TARGET {
 
     col = col / (col + 1);
     col = pow(abs(col), 1/2.2);
+    if (gCascadeCount == 0) {
+        float fog = smoothstep(245, 680, length(gCameraPos_L.xyz - wp));
+        col = lerp(col, terrainSky, fog * .5);
+    }
     return float4(col, 1);
 }
